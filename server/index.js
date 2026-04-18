@@ -427,6 +427,8 @@ app.post('/api/analyze-blow', async (req, res) => {
     });
   }
 
+  const flags = atsFlags(features);
+
   // Update room aggregate state + broadcast to projectors BEFORE LLM calls.
   // That way the projector sees the new total within milliseconds, not 20s later.
   const flagged = estimate.percentPredicted.fev1 < 80;
@@ -450,7 +452,7 @@ app.post('/api/analyze-blow', async (req, res) => {
     personalReport = await askGLMJsonWithRetry(
       [
         { role: 'system', content: PERSONAL_REPORT_SYSTEM },
-        { role: 'user', content: buildPersonalReportUserMessage({ estimate, demographics }) },
+        { role: 'user', content: buildPersonalReportUserMessage({ estimate, demographics, atsFlags: flags }) },
       ],
       { tag: 'personal-report', temperature: 0.8, max_tokens: 2000 },
     );
@@ -471,7 +473,7 @@ app.post('/api/analyze-blow', async (req, res) => {
     gpLetterObj = await askGLMJsonWithRetry(
       [
         { role: 'system', content: GP_LETTER_SYSTEM },
-        { role: 'user', content: buildGpLetterUserMessage({ estimate, demographics }) },
+        { role: 'user', content: buildGpLetterUserMessage({ estimate, demographics, atsFlags: flags }) },
       ],
       { tag: 'gp-letter', temperature: 0.3, max_tokens: 2500 },
     );

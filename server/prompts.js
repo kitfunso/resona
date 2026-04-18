@@ -34,6 +34,9 @@ You will be given:
 - Percent of predicted for each (vs Hankinson NHANES III references)
 - Age, sex, height, ethnicity
 - A flag for whether the ethnicity is directly covered by NHANES III
+- An atsFlags array of effort-quality flags, possible values:
+  * "peak_late" = the peak of the blow arrived late instead of right at the start
+  * "short_exhalation" = the blow ended before the full 6 seconds
 
 Rules:
 - Use the actual numbers you are given. DO NOT compute or invent new numbers.
@@ -46,6 +49,7 @@ Rules:
   * 80-115% actions (pick 3, avoid clichés): specific cardio targets relevant to age (e.g. "zone 2 walking 30 min 5x/week for age 20-40", "park runs + resistance training for age 40-60"); specific breathing exercises (box breathing, diaphragmatic breathing); don't start smoking; manage specific common UK triggers (hay fever in spring, cold air, poor indoor air); annual flu jab; periodic check with phone screen every 6-12 months; if exact ratio is 0.78-0.82 (low-normal) mention it.
   * 115%+ actions: celebrate briefly using the real percent value, acknowledge phone tools can over-read max effort; encourage not smoking; encourage staying active; mention that very high values with low ratio could still hide restrictive patterns so note ratio specifically.
 - Include a "when to worry" one-liner: an EXPLICIT symptom or threshold (not "if you feel bad") that should prompt a GP visit. Vary the exact symptoms based on the numbers you saw.
+- If atsFlags is non-empty, acknowledge the technique issue in the interpretation paragraph in plain English and fold a "retry with better technique" line into the actions. For "peak_late", suggest they try to hit maximum force in the first half-second next time. For "short_exhalation", suggest they keep pushing until the countdown ends. Do not scold.
 - Do not use em dashes. British English spelling (e.g. "flu jab", "GP", "booked").
 - DIFFERENT cases should yield DIFFERENT actions. Never produce the same 3-action list twice unless the inputs are identical.
 
@@ -63,7 +67,7 @@ Return ONLY this JSON shape:
 
 export const GP_LETTER_SYSTEM = `You are a UK junior doctor drafting a referral-style letter to a general practitioner. The patient just completed a phone-based acoustic-spirometry screening at a public event. This is NOT a clinical spirometry assessment. Write accordingly.
 
-You will be given the patient's demographics, the phone-derived FEV1/FVC/PEF with percent-predicted, the reference equation used, and any caveats (e.g., ethnicity fallback).
+You will be given the patient's demographics, the phone-derived FEV1/FVC/PEF with percent-predicted, the reference equation used, any caveats (e.g., ethnicity fallback), and an atsFlags array of effort-quality flags. Possible atsFlags values: "peak_late" (peak did not arrive in the first moments of the blow), "short_exhalation" (exhalation ended early, under ATS 6-second recommendation).
 
 Write the letter in this UK format:
 - Greeting: "Dear GP,"
@@ -71,7 +75,7 @@ Write the letter in this UK format:
 - Second paragraph: list the measurements as a structured block, each line: "FEV1: X.XX L (XX% predicted)", same for FVC and PEF, plus the FEV1/FVC ratio. Use the EXACT numbers you are given.
 - Third paragraph: brief clinical interpretation ONLY at a screening level. If all three percents are 80-120%, say results appear within the expected range for their demographics. If any is under 80%, flag it specifically and recommend formal office spirometry for verification. If over 120%, note the possibility of a strong blow artefact.
 - Fourth paragraph: a SHORT list (max 4) of suggested follow-up questions the GP might ask, examples: history of asthma or COPD, smoking status, recent respiratory infection, occupational exposures. Format as a bulleted list using "- ".
-- Fifth paragraph: explicit caveat that this is a phone-based acoustic screening, not clinical-grade spirometry. Reference equations were Hankinson NHANES III. If the ethnicity fallback flag is true, include one line that NHANES III does not cover the patient's population and percent-predicted is indicative only.
+- Fifth paragraph: explicit caveat that this is a phone-based acoustic screening, not clinical-grade spirometry. Reference equations were Hankinson NHANES III. If the ethnicity fallback flag is true, include one line that NHANES III does not cover the patient's population and percent-predicted is indicative only. If atsFlags is non-empty, add one line noting the effort-quality flag ("peak flow arrived late" / "exhalation ended under the ATS 6-second recommendation") and that the numbers should be interpreted alongside that.
 - Sign-off: "Kind regards, Resona (on behalf of [patient name or 'the patient'])"
 
 Rules:
@@ -203,7 +207,7 @@ export function buildClassifierUserMessage({ features, estimate, demographics })
   });
 }
 
-export function buildPersonalReportUserMessage({ estimate, demographics }) {
+export function buildPersonalReportUserMessage({ estimate, demographics, atsFlags = [] }) {
   return JSON.stringify({
     patient: {
       name: demographics.name || null,
@@ -228,10 +232,11 @@ export function buildPersonalReportUserMessage({ estimate, demographics }) {
       note: estimate.referenceNote,
       ethnicityDirectMatch: Boolean(estimate.ethnicityDirectMatch ?? true),
     },
+    atsFlags: Array.isArray(atsFlags) ? atsFlags : [],
   });
 }
 
-export function buildGpLetterUserMessage({ estimate, demographics }) {
+export function buildGpLetterUserMessage({ estimate, demographics, atsFlags = [] }) {
   return JSON.stringify({
     patient: {
       name: demographics.name || null,
@@ -255,6 +260,7 @@ export function buildGpLetterUserMessage({ estimate, demographics }) {
       source: estimate.referenceStatus,
       ethnicityDirectMatch: Boolean(estimate.ethnicityDirectMatch ?? true),
     },
+    atsFlags: Array.isArray(atsFlags) ? atsFlags : [],
     context: {
       eventType: 'Watcha Global AI Hackathon 2026 live public screening',
       screeningTool: 'Resona, phone-based acoustic spirometry',
