@@ -38,6 +38,15 @@ async function getUserMediaStream() {
   return navigator.mediaDevices.getUserMedia(constraints);
 }
 
+// Trigger the mic permission dialog in isolation, then release the stream.
+// Call this from the user tap, BEFORE any countdown, so the OS prompt does
+// not pop mid-countdown. The permission grant is sticky for the page session,
+// so recordBlow() below gets an instant stream after this resolves.
+export async function acquireMicPermission() {
+  const stream = await getUserMediaStream();
+  stream.getTracks().forEach((t) => t.stop());
+}
+
 // Records `durationMs` of raw mono PCM from the mic.
 // Returns { pcm: Float32Array, sampleRate: number }.
 //

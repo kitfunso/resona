@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { unlockAudio, recordBlow } from '../audio/recorder.js';
+import { unlockAudio, acquireMicPermission, recordBlow } from '../audio/recorder.js';
 import { extractFeatures } from '../audio/features.js';
 import { estimateSpirometry } from '../audio/regression.js';
 import { analyzeBlow } from '../api.js';
@@ -568,9 +568,20 @@ export default function ParticipantView() {
     try {
       unlockAudio();
 
+      // Trigger the mic permission prompt NOW, while the user's tap is still
+      // fresh. iOS/Android show the OS permission dialog synchronously here;
+      // once granted, the countdown below runs without a dialog popping
+      // mid-stream. If denied, surface a clear message instead of crashing.
+      try {
+        await acquireMicPermission();
+      } catch (permErr) {
+        setError('Microphone permission is required. Please allow mic access and try again.');
+        setStage('error');
+        return;
+      }
+
       // 3-second "get ready" pre-roll so the user has time to inhale deeply
-      // before we start sampling. Must stay async from the tap so the user
-      // gesture that unlocked audio is still in scope.
+      // before we start sampling.
       setStage('prepping');
       for (let n = 3; n >= 1; n--) {
         setCountdown(n);
