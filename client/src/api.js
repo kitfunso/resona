@@ -36,6 +36,32 @@ async function postJson(path, body, { retries = 1, timeoutMs = 35000 } = {}) {
   throw lastErr ?? new Error('postJson failed');
 }
 
+// Stable per-device session id for leaderboard deduplication. Re-blows from
+// the same phone update that device's best FVC instead of inflating the team
+// total. Generated once, persisted via localStorage.
+const SESSION_KEY = 'resona:sessionId';
+function newSessionId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `ssn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+export function getSessionId() {
+  if (typeof localStorage === 'undefined') return newSessionId();
+  let id = null;
+  try {
+    id = localStorage.getItem(SESSION_KEY);
+  } catch {}
+  if (!id) {
+    id = newSessionId();
+    try { localStorage.setItem(SESSION_KEY, id); } catch {}
+  }
+  return id;
+}
+
 export function analyzeBlow({ features, estimate, demographics }) {
-  return postJson('/api/analyze-blow', { features, estimate, demographics });
+  return postJson('/api/analyze-blow', {
+    features,
+    estimate,
+    demographics,
+    sessionId: getSessionId(),
+  });
 }

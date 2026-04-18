@@ -39,28 +39,44 @@ db.exec(`
 
 // -----------------------------------------------------------------------------
 // Room aggregate state (ephemeral, cleared on restart).
+//
+// Per-device dedup: each browser/phone gets a stable sessionId (localStorage
+// UUID) and the room keeps ONE entry per sessionId, storing the best FVC that
+// device has posted. Re-blows from the same phone update that device's best
+// rather than adding another row to the team total. Keeps the leaderboard
+// ungameable by one over-eager participant.
 // -----------------------------------------------------------------------------
 const room = {
-  participantCount: 0,
-  totalLiters: 0,
-  percentPredictedSum: 0,
-  flaggedCount: 0,
+  // sessionId -> { bestFev1, bestFvc, bestPef, bestPct, flagged, teamCode, blowCount, lastTs }
+  participants: new Map(),
   newestBlowPct: null,
-  recentBlows: [], // { fev1, fvc, pct, flagged, teamCode, ts }
+  recentBlows: [], // chronological log of every blow incl. retries
   narratorLog: [], // last 5 narrator lines
-  teamTotals: new Map(), // teamCode -> { count, totalLiters, pctSum }
 };
 
 // Goal scales with the room. One typical FVC (3 L) per participant,
 // with a small floor so the bar is visible before the first blow.
-// This lets a room of any size actually finish the bar.
-function goalLiters() {
-  return Math.max(30, room.participantCount * 3);
+function goalLiters(count = room.participants.size) {
+  return Math.max(30, count * 3);
+}
+
+function aggregateTeams() {
+  const teams = new Map();
+  for (const p of room.participants.values()) {
+    if (!p.teamCode) continue;
+    const t = teams.get(p.teamCode) || { count: 0, totalLiters: 0, pctSum: 0 };
+    t.count += 1;
+    t.totalLiters += p.bestFvc;
+    t.pctSum += p.bestPct;
+    teams.set(p.teamCode, t);
+  }
+  return teams;
 }
 
 function teamLeaderboard(limit = 3) {
+  const teams = aggregateTeams();
   const entries = [];
-  for (const [code, t] of room.teamTotals.entries()) {
+  for (const [code, t] of teams.entries()) {
     entries.push({
       teamCode: code,
       count: t.count,
@@ -73,37 +89,59 @@ function teamLeaderboard(limit = 3) {
 }
 
 function roomSnapshot() {
+  let totalLiters = 0;
+  let pctSum = 0;
+  let flaggedCount = 0;
+  for (const p of room.participants.values()) {
+    totalLiters += p.bestFvc;
+    pctSum += p.bestPct;
+    if (p.flagged) flaggedCount += 1;
+  }
+  const participantCount = room.participants.size;
+  const goal = goalLiters(participantCount);
   return {
-    participantCount: room.participantCount,
-    totalLiters: room.totalLiters,
-    meanPercentPredicted:
-      room.participantCount > 0 ? room.percentPredictedSum / room.participantCount : null,
-    flaggedCount: room.flaggedCount,
-    goalLiters: goalLiters(),
-    progress: room.totalLiters / Math.max(1, goalLiters()),
+    participantCount,
+    totalLiters,
+    meanPercentPredicted: participantCount > 0 ? pctSum / participantCount : null,
+    flaggedCount,
+    goalLiters: goal,
+    progress: totalLiters / Math.max(1, goal),
     newestBlowPct: room.newestBlowPct,
     narratorLog: [...room.narratorLog],
     topTeams: teamLeaderboard(3),
-    teamCount: room.teamTotals.size,
+    teamCount: aggregateTeams().size,
   };
 }
 
-function recordBlow({ fev1, fvc, pef, percentPredicted, flagged, teamCode = null }) {
-  room.participantCount += 1;
-  room.totalLiters += fvc; // FVC is total volume exhaled
-  room.percentPredictedSum += percentPredicted;
-  if (flagged) room.flaggedCount += 1;
+function recordBlow({ sessionId, fev1, fvc, pef, percentPredicted, flagged, teamCode = null }) {
+  // Fallback id for clients on old builds and for seedDemoMode synthetic blows.
+  const id = sessionId || `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const prev = room.participants.get(id);
+  const isBetter = !prev || fvc > prev.bestFvc;
+
+  if (isBetter) {
+    room.participants.set(id, {
+      bestFev1: fev1,
+      bestFvc: fvc,
+      bestPef: pef,
+      bestPct: percentPredicted,
+      flagged,
+      teamCode: teamCode ?? prev?.teamCode ?? null,
+      blowCount: (prev?.blowCount ?? 0) + 1,
+      lastTs: Date.now(),
+    });
+  } else {
+    room.participants.set(id, {
+      ...prev,
+      teamCode: teamCode ?? prev.teamCode,
+      blowCount: prev.blowCount + 1,
+      lastTs: Date.now(),
+    });
+  }
+
   room.newestBlowPct = percentPredicted;
   room.recentBlows.push({ fev1, fvc, pef, pct: percentPredicted, flagged, teamCode, ts: Date.now() });
   if (room.recentBlows.length > 50) room.recentBlows.shift();
-
-  if (teamCode) {
-    const t = room.teamTotals.get(teamCode) || { count: 0, totalLiters: 0, pctSum: 0 };
-    t.count += 1;
-    t.totalLiters += fvc;
-    t.pctSum += percentPredicted;
-    room.teamTotals.set(teamCode, t);
-  }
 }
 
 function pushNarratorLine(line) {
@@ -143,7 +181,8 @@ function seedDemoMode() {
       flagged: pctDraw < 80,
     });
   }
-  console.log(`[Resona] demo mode seeded ${room.participantCount} synthetic blows, totalLiters=${room.totalLiters.toFixed(1)}`);
+  const snap = roomSnapshot();
+  console.log(`[Resona] demo mode seeded ${snap.participantCount} synthetic participants, totalLiters=${snap.totalLiters.toFixed(1)}`);
 }
 
 // -----------------------------------------------------------------------------
@@ -399,21 +438,17 @@ app.post('/api/analyze-neuro', async (req, res) => {
 });
 
 app.post('/api/admin/reset', (req, res) => {
-  room.participantCount = 0;
-  room.totalLiters = 0;
-  room.percentPredictedSum = 0;
-  room.flaggedCount = 0;
+  room.participants.clear();
   room.newestBlowPct = null;
   room.recentBlows.length = 0;
   room.narratorLog.length = 0;
-  if (room.teamTotals) room.teamTotals.clear();
   broadcastToProjectors({ type: 'state', state: roomSnapshot(), resetAt: Date.now() });
   console.log('[Resona] room state reset via /api/admin/reset');
   res.json({ ok: true, state: roomSnapshot() });
 });
 
 app.post('/api/analyze-blow', async (req, res) => {
-  const { features, estimate, demographics } = req.body || {};
+  const { features, estimate, demographics, sessionId } = req.body || {};
   if (!features || !estimate || !demographics) {
     return res.status(400).json({ error: 'missing features, estimate, or demographics' });
   }
@@ -439,6 +474,7 @@ app.post('/api/analyze-blow', async (req, res) => {
     ? demographics.teamCode.toUpperCase().slice(0, 6)
     : null;
   recordBlow({
+    sessionId,
     fev1: estimate.fev1,
     fvc: estimate.fvc,
     pef: estimate.pef,
@@ -567,7 +603,7 @@ let narratorInFlight = false;
 
 async function runNarratorTick() {
   if (narratorInFlight) return;
-  if (room.participantCount === 0) return;
+  if (room.participants.size === 0) return;
   if (projectorSockets.size === 0) return; // no one listening, save the tokens
 
   narratorInFlight = true;
