@@ -376,18 +376,15 @@ const css = `
     width: fit-content;
     text-align: center;
   }
+  /* Arrow always points to the bottom-centre. iPhone mics are nominally
+     bottom-left of the charging port, but in practice the phone is held
+     close enough to the mouth that centre-aim captures the sound reliably
+     on every device. Matches real blowing technique better than spec-accurate
+     placement. margin-left of -14px (half the triangle's 28px base) instead
+     of transform: translateX so the bounce translateY animation survives. */
   .r-mic-hint .r-mic-arrow {
     position: absolute;
     bottom: 0;
-  }
-  /* iPhone primary mic is bottom-left of the charging port (iPhone 7+). */
-  .r-mic-hint[data-platform="ios"] .r-mic-arrow {
-    left: calc(18vw + env(safe-area-inset-left, 0));
-  }
-  /* Most Android phones have a bottom-center mic. Using margin-left
-     (-14px = half the arrow triangle width) instead of transform so the
-     bounce animation's translateY keeps working. */
-  .r-mic-hint[data-platform="android"] .r-mic-arrow {
     left: 50%;
     margin-left: -14px;
   }
