@@ -1,12 +1,17 @@
 """Build the Watcha submission .pptx for Resona.
 
+WARNING: submission/Resona.pptx has been hand-edited in PowerPoint after
+this script last ran (2026-04-18). Running this script NOW will overwrite
+those manual edits. Update this script to match the current .pptx before
+re-running, or accept the loss.
+
 Event rules mandate Alibaba PuHui 3.0 + Times New Roman. Our live stage
 deck stays in deck/index.html with its own typography; this artifact
 is for the submission packet only.
 
 Usage:
     python scripts/build_submission_pptx.py
-    # writes submission/Resona.pptx
+    # writes submission/Resona.pptx (overwrites manual edits)
 
 Layout system:
     - 16:9 widescreen, 13.333 x 7.5 in (EMU math handled by python-pptx)
