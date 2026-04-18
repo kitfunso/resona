@@ -10,16 +10,16 @@ async function main() {
     );
     const clean = reply.trim();
     if (/\bREADY\b/i.test(clean)) {
-      console.log(`\nNot-a-Doctor GLM check: READY`);
+      console.log(`\nResona GLM check: READY`);
       console.log(`  model: ${MODEL}`);
       console.log(`  reply: ${JSON.stringify(clean)}`);
       process.exit(0);
     }
-    console.error(`\nNot-a-Doctor GLM check: FAILED, model returned unexpected text`);
+    console.error(`\nResona GLM check: FAILED, model returned unexpected text`);
     console.error(`  reply: ${JSON.stringify(clean)}`);
     process.exit(1);
   } catch (err) {
-    console.error(`\nNot-a-Doctor GLM check: FAILED`);
+    console.error(`\nResona GLM check: FAILED`);
     console.error(`  error: ${err.message}`);
     if (err.status) console.error(`  status: ${err.status}`);
     if (err.response?.data) console.error(`  body: ${JSON.stringify(err.response.data)}`);

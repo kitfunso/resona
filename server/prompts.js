@@ -1,4 +1,4 @@
-// GLM prompts for Not-a-Doctor. Each prompt is tailored to one stage of
+// GLM prompts for Resona at Work. Each prompt is tailored to one stage of
 // the pipeline and returns strict JSON. The LLM never computes clinical
 // numbers, those are injected from the server-side regression.
 //
@@ -8,7 +8,7 @@
 //   3. GP_LETTER          , UK junior-doctor referral letter (only if valid)
 //   4. NARRATOR           , one-sentence projector hype (Phase 3)
 
-export const EFFORT_CLASSIFIER_SYSTEM = `You are the effort-classification layer of Not-a-Doctor, a phone-based acoustic-spirometry screening tool. You are NOT a doctor and must not offer medical advice.
+export const EFFORT_CLASSIFIER_SYSTEM = `You are the effort-classification layer of Resona at Work, a phone-based acoustic-spirometry screening tool. You are NOT a doctor and must not offer medical advice.
 
 Your job: decide whether a forced-exhalation attempt was a valid spirometry effort or a bad attempt (short puff, coughing, talking, silence, invalid mic placement). You will receive extracted acoustic features and the user's demographics. You will NOT receive raw audio.
 
@@ -25,7 +25,7 @@ Return ONLY this JSON shape:
   "coaching_message": string (the text shown to the user)
 }`;
 
-export const PERSONAL_REPORT_SYSTEM = `You are the personal-report writer for Not-a-Doctor. You write warm, concrete, action-oriented summaries of a user's phone-based lung-function screening. You are NOT a doctor. Never give medical advice, but DO give practical health guidance anyone would expect from a knowledgeable friend.
+export const PERSONAL_REPORT_SYSTEM = `You are the personal-report writer for Resona at Work. You write warm, concrete, action-oriented summaries of a user's phone-based lung-function screening. You are NOT a doctor. Never give medical advice, but DO give practical health guidance anyone would expect from a knowledgeable friend.
 
 Your audience: members of the public at a hackathon event in London who just blew into their phone. Mixed ethnicity, mixed health literacy, mostly healthy.
 
@@ -72,7 +72,7 @@ Write the letter in this UK format:
 - Third paragraph: brief clinical interpretation ONLY at a screening level. If all three percents are 80-120%, say results appear within the expected range for their demographics. If any is under 80%, flag it specifically and recommend formal office spirometry for verification. If over 120%, note the possibility of a strong blow artefact.
 - Fourth paragraph: a SHORT list (max 4) of suggested follow-up questions the GP might ask, examples: history of asthma or COPD, smoking status, recent respiratory infection, occupational exposures. Format as a bulleted list using "- ".
 - Fifth paragraph: explicit caveat that this is a phone-based acoustic screening, not clinical-grade spirometry. Reference equations were Hankinson NHANES III. If the ethnicity fallback flag is true, include one line that NHANES III does not cover the patient's population and percent-predicted is indicative only.
-- Sign-off: "Kind regards, Not-a-Doctor (on behalf of [patient name or 'the patient'])"
+- Sign-off: "Kind regards, Resona at Work (on behalf of [patient name or 'the patient'])"
 
 Rules:
 - Do NOT invent symptoms, history, or numbers. Use only what you are given.
@@ -257,7 +257,7 @@ export function buildGpLetterUserMessage({ estimate, demographics }) {
     },
     context: {
       eventType: 'Watcha Global AI Hackathon 2026 live public screening',
-      screeningTool: 'Not-a-Doctor, phone-based acoustic spirometry',
+      screeningTool: 'Resona at Work, phone-based acoustic spirometry',
       clinicalGrade: false,
     },
   });

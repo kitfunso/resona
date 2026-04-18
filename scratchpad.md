@@ -1,11 +1,11 @@
-# Not-a-Doctor scratchpad
+# Resona at Work scratchpad
 
 Read this at the start of every new session. Update at the end of every phase.
 
 ## Product
 
-- Name: Not-a-Doctor
-- Tagline: "Not a doctor. Just a phone that listens."
+- Name: Resona at Work (codename: not-a-doctor)
+- Tagline: "Every body has a rhythm."
 - Demo: Watcha Global AI Hackathon 2026, London, Sunday pitch
 - 2-min live pitch, 100+ audience blow into phones via QR, projector shows co-op boss-fight leaderboard
 
