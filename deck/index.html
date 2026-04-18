@@ -369,30 +369,29 @@
       .s1-strip {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: clamp(0.5rem, 1.5vw, 1.5rem);
-        padding: clamp(0.75rem, 1.5vh, 1.25rem);
-        background: rgba(244, 236, 225, 0.03);
-        border: 1px solid var(--hairline);
-        border-radius: 4px;
+        gap: clamp(0.75rem, 2vw, 2rem);
+        padding: clamp(1.25rem, 2.2vh, 1.85rem) clamp(1rem, 2vw, 1.75rem);
+        background: rgba(244, 236, 225, 0.04);
+        border: 1px solid var(--hairline-strong);
+        border-radius: 6px;
       }
       .s1-strip-row {
         display: flex;
         flex-direction: column;
-        gap: 0.15rem;
+        gap: 0.3rem;
       }
       .s1-strip-row .k {
-        font-size: clamp(0.55rem, 0.9vw, 0.7rem);
+        font-size: clamp(0.72rem, 1.1vw, 0.9rem);
         font-weight: 700;
-        letter-spacing: 0.24em;
+        letter-spacing: 0.22em;
         text-transform: uppercase;
-        color: var(--bone-3);
+        color: var(--bone-2);
       }
       .s1-strip-row .v {
         font-family: var(--font-display);
-        
-        font-size: clamp(1.2rem, 2.4vw, 2.2rem);
+        font-size: clamp(1.75rem, 3.4vw, 3.2rem);
         line-height: 1;
-        color: var(--bone-0);
+        color: var(--brass-bright);
         font-variant-numeric: tabular-nums;
       }
       .s1-strip-row .v .small {
@@ -407,27 +406,32 @@
       }
       .s1-strip-row .src {
         font-family: var(--font-mono);
-        font-size: clamp(0.55rem, 0.75vw, 0.68rem);
+        font-size: clamp(0.7rem, 0.95vw, 0.82rem);
         color: var(--bone-3);
-        letter-spacing: 0.06em;
-        line-height: 1.3;
-        margin-top: 0.15rem;
+        letter-spacing: 0.04em;
+        line-height: 1.35;
+        margin-top: 0.25rem;
       }
 
       /* =============================================================
          SLIDE 02 · PROBLEM
          ============================================================= */
       .s2 .slide-content {
-        display: grid;
-        grid-template-rows: auto 1fr auto;
-        gap: clamp(1rem, 3vh, 2.5rem);
+        display: flex;
+        flex-direction: column;
+        gap: clamp(0.75rem, 1.8vh, 1.4rem);
         padding-top: clamp(5rem, 10vh, 7rem);
         padding-bottom: clamp(5rem, 10vh, 7rem);
+      }
+      .s2-head-block {
+        display: flex;
+        flex-direction: column;
+        gap: clamp(0.35rem, 0.8vh, 0.6rem);
+        margin-bottom: clamp(0.25rem, 0.8vh, 0.5rem);
       }
       .s2-headline {
         text-align: center;
         font-family: var(--font-display);
-        
         font-size: var(--t-h1);
         line-height: 1;
         letter-spacing: -0.015em;
@@ -795,29 +799,13 @@
         border: 1px dashed var(--brass-line);
         border-radius: 1.1rem;
       }
-      .s4-qr-inner {
-        width: 100%; aspect-ratio: 1;
-        background:
-          repeating-linear-gradient(0deg, var(--ink-1) 0, var(--ink-1) 3%, transparent 3%, transparent 6%),
-          repeating-linear-gradient(90deg, var(--ink-1) 0, var(--ink-1) 3%, transparent 3%, transparent 6%);
-        opacity: 0.85;
+      .s4-qr-img {
+        display: block;
+        width: 100%;
+        height: auto;
+        aspect-ratio: 1;
+        object-fit: contain;
         border-radius: 4px;
-        position: relative;
-      }
-      .s4-qr-label {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: var(--font-display);
-        
-        font-size: clamp(1.2rem, 2vw, 1.8rem);
-        color: var(--ink-0);
-        background: var(--bone-0);
-        text-align: center;
-        padding: 1rem;
-        line-height: 1.2;
       }
       .s4-qr-note {
         font-family: var(--font-mono);
@@ -1143,10 +1131,12 @@
         <span class="chrome-brand"><span class="mark">Resona</span></span>
       </div>
       <div class="slide-content">
-        <p class="s2-lead reveal">The market is moving. The tools are not.</p>
-        <h2 class="s2-headline reveal" style="animation-delay: 0.1s">
-          Wall Street is <span class="brass">buying</span> wellness.<br>The hardware is <span class="brass">failing</span> it.
-        </h2>
+        <div class="s2-head-block">
+          <p class="s2-lead reveal">The market is moving. The tools are not.</p>
+          <h2 class="s2-headline reveal" style="animation-delay: 0.1s">
+            Wall Street is <span class="brass">buying</span> wellness.<br>The hardware is <span class="brass">failing</span> it.
+          </h2>
+        </div>
 
         <div class="s2-cases">
           <article class="s2-case reveal" style="animation-delay: 0.3s">
@@ -1291,13 +1281,13 @@
 
         <div class="s4-r reveal" style="animation-delay: 0.25s">
           <div class="s4-qr">
-            <div class="s4-qr-inner">
-              <div class="s4-qr-label">
-                <span>QR appears<br>live on the<br>projector</span>
-              </div>
-            </div>
+            <img
+              class="s4-qr-img"
+              src="https://api.qrserver.com/v1/create-qr-code/?size=600x600&ecc=M&margin=1&color=0a0b10&bgcolor=f4ece1&data=https%3A%2F%2Fmocha-cleat-chastity.ngrok-free.dev%2F"
+              alt="Scan to join the Resona demo"
+            />
           </div>
-          <div class="s4-qr-note">Scan from the big screen · works on any phone</div>
+          <div class="s4-qr-note">mocha-cleat-chastity.ngrok-free.dev · scan now</div>
         </div>
       </div>
       <div class="chrome-bottom">
