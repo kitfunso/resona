@@ -1,0 +1,1453 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Resona · Pitch · Watcha 2026</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* =============================================================
+         VIEWPORT BASE (verbatim from frontend-slides/viewport-base.css)
+         ============================================================= */
+      html, body {
+        height: 100%;
+        overflow-x: hidden;
+      }
+      html {
+        scroll-snap-type: y mandatory;
+        scroll-behavior: smooth;
+      }
+      .slide {
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+        scroll-snap-align: start;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+      .slide-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        max-height: 100%;
+        overflow: hidden;
+        padding: var(--slide-padding);
+      }
+      :root {
+        --title-size: clamp(1.5rem, 5vw, 4rem);
+        --h2-size: clamp(1.25rem, 3.5vw, 2.5rem);
+        --h3-size: clamp(1rem, 2.5vw, 1.75rem);
+        --body-size: clamp(0.75rem, 1.5vw, 1.125rem);
+        --small-size: clamp(0.65rem, 1vw, 0.875rem);
+        --slide-padding: clamp(1rem, 4vw, 4rem);
+        --content-gap: clamp(0.5rem, 2vw, 2rem);
+        --element-gap: clamp(0.25rem, 1vw, 1rem);
+      }
+      .card, .container, .content-box {
+        max-width: min(90vw, 1000px);
+        max-height: min(80vh, 700px);
+      }
+      img, .image-container {
+        max-width: 100%;
+        max-height: min(50vh, 400px);
+        object-fit: contain;
+      }
+      @media (max-height: 700px) {
+        :root {
+          --slide-padding: clamp(0.75rem, 3vw, 2rem);
+          --content-gap: clamp(0.4rem, 1.5vw, 1rem);
+          --title-size: clamp(1.25rem, 4.5vw, 2.5rem);
+          --h2-size: clamp(1rem, 3vw, 1.75rem);
+        }
+      }
+      @media (max-height: 600px) {
+        :root {
+          --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem);
+          --content-gap: clamp(0.3rem, 1vw, 0.75rem);
+          --title-size: clamp(1.1rem, 4vw, 2rem);
+          --body-size: clamp(0.7rem, 1.2vw, 0.95rem);
+        }
+      }
+      @media (max-width: 600px) {
+        :root {
+          --title-size: clamp(1.25rem, 7vw, 2.5rem);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.2s !important;
+        }
+        html { scroll-behavior: auto; }
+      }
+
+      /* =============================================================
+         BRAND TOKENS · matches Resona at Work app redesign
+         ============================================================= */
+      :root {
+        --ink-0: #0a0b10;
+        --ink-1: #12131a;
+        --ink-2: #1a1c26;
+        --ink-3: #242732;
+
+        --bone-0: #f4ece1;
+        --bone-1: #e4d9c4;
+        --bone-2: #b8ac94;
+        --bone-3: #8a8272;
+
+        --brass: #c9a96e;
+        --brass-bright: #e6c68a;
+        --brass-dim: #7a6542;
+        --brass-line: rgba(201, 169, 110, 0.25);
+        --brass-glow: rgba(201, 169, 110, 0.3);
+
+        --pulse: #7bc196;
+        --warn: #d18589;
+
+        --hairline: rgba(244, 236, 225, 0.08);
+        --hairline-strong: rgba(244, 236, 225, 0.2);
+
+        --font-display: 'Instrument Serif', Georgia, serif;
+        --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+        --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+        /* Editorial-sized type scale for projected deck */
+        --t-eyebrow: clamp(0.75rem, 1.1vw, 1rem);
+        --t-caption: clamp(0.85rem, 1.3vw, 1.1rem);
+        --t-body: clamp(1.05rem, 1.6vw, 1.5rem);
+        --t-lead: clamp(1.2rem, 1.8vw, 1.7rem);
+        --t-h3: clamp(1.6rem, 2.6vw, 2.3rem);
+        --t-h2: clamp(2rem, 3.8vw, 3.2rem);
+        --t-h1: clamp(2.4rem, 5.5vw, 4.8rem);
+        --t-hero: clamp(3.5rem, 11vw, 9rem);
+      }
+
+      body {
+        margin: 0;
+        background: var(--ink-1);
+        color: var(--bone-0);
+        font-family: var(--font-body);
+        font-weight: 400;
+        line-height: 1.45;
+        letter-spacing: 0.003em;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      /* Grain texture across the whole deck */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 100;
+        opacity: 0.05;
+        mix-blend-mode: overlay;
+        background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 300 300' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+      }
+
+      /* =============================================================
+         SLIDE BACKGROUNDS · subtle per-slide atmospherics
+         ============================================================= */
+      .slide {
+        color: var(--bone-0);
+      }
+      .slide[data-bg="ink"] {
+        background:
+          radial-gradient(ellipse at 15% 25%, rgba(201, 169, 110, 0.12), transparent 55%),
+          radial-gradient(ellipse at 85% 80%, rgba(122, 169, 184, 0.08), transparent 55%),
+          linear-gradient(135deg, #14161f 0%, #1a1c26 100%);
+      }
+      .slide[data-bg="warm"] {
+        background:
+          radial-gradient(ellipse at 20% 30%, rgba(231, 184, 126, 0.16), transparent 55%),
+          radial-gradient(ellipse at 80% 70%, rgba(209, 133, 137, 0.1), transparent 55%),
+          linear-gradient(135deg, #1a1620 0%, #241a22 100%);
+      }
+      .slide[data-bg="cool"] {
+        background:
+          radial-gradient(ellipse at 85% 20%, rgba(122, 169, 184, 0.12), transparent 55%),
+          radial-gradient(ellipse at 15% 75%, rgba(201, 169, 110, 0.08), transparent 55%),
+          linear-gradient(135deg, #121520 0%, #1a1f2a 100%);
+      }
+      .slide[data-bg="brass"] {
+        background:
+          radial-gradient(ellipse at 30% 40%, rgba(231, 184, 126, 0.22), transparent 55%),
+          radial-gradient(ellipse at 75% 70%, rgba(201, 169, 110, 0.14), transparent 55%),
+          linear-gradient(135deg, #1f1a1a 0%, #2a2320 100%);
+      }
+      .slide[data-bg="stage"] {
+        background:
+          radial-gradient(ellipse at 50% 40%, rgba(231, 184, 126, 0.2), transparent 55%),
+          radial-gradient(ellipse at 50% 90%, rgba(122, 169, 184, 0.08), transparent 50%),
+          linear-gradient(135deg, #1a1c26 0%, #12131a 100%);
+      }
+
+      /* =============================================================
+         SHARED SLIDE CHROME
+         ============================================================= */
+      .chrome-top, .chrome-bottom {
+        position: absolute;
+        left: 0; right: 0;
+        padding: clamp(1rem, 2.5vh, 2rem) clamp(1.5rem, 4vw, 4rem);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-family: var(--font-body);
+        font-size: var(--t-eyebrow);
+        font-weight: 600;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--bone-3);
+        z-index: 5;
+      }
+      .chrome-top { top: 0; border-bottom: 1px solid var(--hairline); }
+      .chrome-bottom { bottom: 0; border-top: 1px solid var(--hairline); }
+      .chrome-case {
+        color: var(--brass);
+      }
+      .chrome-brand {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+      }
+      .chrome-brand .mark {
+        font-family: var(--font-display);
+        
+        font-size: clamp(1rem, 1.3vw, 1.35rem);
+        letter-spacing: -0.01em;
+        text-transform: none;
+        color: var(--bone-0);
+      }
+      .chrome-brand .sub {
+        color: var(--brass);
+        letter-spacing: 0.28em;
+      }
+
+      /* Big tick row, reused as signature decorative element */
+      .tick-strip {
+        display: flex;
+        align-items: flex-end;
+        gap: 4px;
+        height: clamp(0.8rem, 1.2vh, 1rem);
+      }
+      .tick-strip span {
+        display: block;
+        width: 1px;
+        background: var(--brass);
+        opacity: 0.55;
+      }
+      .tick-strip span.major { opacity: 1; }
+
+      /* Page load reveal */
+      .reveal {
+        opacity: 0;
+        transform: translateY(18px);
+        animation: rev 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+      @keyframes rev {
+        to { opacity: 1; transform: none; }
+      }
+
+      /* =============================================================
+         SLIDE 01 · HOOK
+         ============================================================= */
+      .s1 .slide-content {
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        align-items: center;
+        gap: clamp(2rem, 5vw, 5rem);
+        padding-top: clamp(5rem, 10vh, 7rem);
+        padding-bottom: clamp(5rem, 10vh, 7rem);
+      }
+      .s1-left { display: flex; flex-direction: column; gap: clamp(1rem, 2.5vh, 2rem); }
+      .s1-eyebrow {
+        font-size: var(--t-caption);
+        font-weight: 700;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--brass);
+      }
+      .s1-pre {
+        font-family: var(--font-body);
+        font-size: var(--t-lead);
+        font-weight: 400;
+        color: var(--bone-1);
+        line-height: 1.3;
+        max-width: 24ch;
+      }
+      .s1-hero {
+        font-family: var(--font-display);
+        font-size: var(--t-hero);
+        line-height: 0.9;
+        letter-spacing: -0.02em;
+        color: var(--bone-0);
+        text-shadow: 0 6px 80px rgba(0, 0, 0, 0.35);
+        animation-delay: 0.2s;
+      }
+      .s1-hero .unit {
+        font-family: var(--font-body);
+        font-size: 0.22em;
+        font-weight: 700;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--brass);
+        vertical-align: middle;
+        margin-left: 0.4em;
+      }
+      .s1-post {
+        font-family: var(--font-body);
+        font-size: var(--t-lead);
+        color: var(--bone-1);
+        line-height: 1.3;
+        max-width: 26ch;
+      }
+      .s1-callout {
+        font-family: var(--font-display);
+        
+        font-size: var(--t-h3);
+        color: var(--brass-bright);
+        line-height: 1.2;
+        padding-left: clamp(1rem, 1.5vw, 1.5rem);
+        border-left: 2px solid var(--brass);
+        max-width: 30ch;
+      }
+      .s1-right {
+        display: flex;
+        flex-direction: column;
+        gap: clamp(1rem, 2vh, 1.5rem);
+      }
+      .s1-day-bar {
+        display: flex;
+        height: clamp(4rem, 10vh, 8rem);
+        border-radius: 4px;
+        overflow: hidden;
+        border: 1px solid var(--hairline-strong);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      }
+      .s1-day-bar > div {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        padding: clamp(0.4rem, 0.8vw, 0.8rem);
+        font-family: var(--font-mono);
+        font-size: clamp(0.55rem, 0.9vw, 0.78rem);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--ink-0);
+        line-height: 1.15;
+      }
+      .s1-day-bar .sleep { background: var(--ink-3); color: var(--bone-2); flex-basis: 33%; }
+      .s1-day-bar .sit   {
+        background: linear-gradient(180deg, var(--brass-bright), var(--brass));
+        flex-basis: 40%;
+        color: var(--ink-0);
+        font-weight: 700;
+      }
+      .s1-day-bar .move  { background: #3e5047; color: var(--bone-1); flex-basis: 12%; font-size: clamp(0.45rem, 0.75vw, 0.7rem); }
+      .s1-day-bar .other { background: #242732; color: var(--bone-2); flex-basis: 15%; }
+      .s1-day-legend {
+        display: flex;
+        justify-content: space-between;
+        font-family: var(--font-mono);
+        font-size: clamp(0.6rem, 0.9vw, 0.8rem);
+        color: var(--bone-3);
+        letter-spacing: 0.1em;
+      }
+      .s1-day-legend strong { color: var(--brass); font-weight: 600; }
+
+      .s1-strip {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: clamp(0.5rem, 1.5vw, 1.5rem);
+        padding: clamp(0.75rem, 1.5vh, 1.25rem);
+        background: rgba(244, 236, 225, 0.03);
+        border: 1px solid var(--hairline);
+        border-radius: 4px;
+      }
+      .s1-strip-row {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+      }
+      .s1-strip-row .k {
+        font-size: clamp(0.55rem, 0.9vw, 0.7rem);
+        font-weight: 700;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--bone-3);
+      }
+      .s1-strip-row .v {
+        font-family: var(--font-display);
+        
+        font-size: clamp(1.2rem, 2.4vw, 2.2rem);
+        line-height: 1;
+        color: var(--bone-0);
+        font-variant-numeric: tabular-nums;
+      }
+      .s1-strip-row .v .small {
+        font-family: var(--font-body);
+        font-size: 0.35em;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--brass);
+        font-weight: 600;
+        margin-left: 0.3em;
+        font-style: normal;
+      }
+      .s1-strip-row .src {
+        font-family: var(--font-mono);
+        font-size: clamp(0.55rem, 0.75vw, 0.68rem);
+        color: var(--bone-3);
+        letter-spacing: 0.06em;
+        line-height: 1.3;
+        margin-top: 0.15rem;
+      }
+
+      /* =============================================================
+         SLIDE 02 · PROBLEM
+         ============================================================= */
+      .s2 .slide-content {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: clamp(1rem, 3vh, 2.5rem);
+        padding-top: clamp(5rem, 10vh, 7rem);
+        padding-bottom: clamp(5rem, 10vh, 7rem);
+      }
+      .s2-headline {
+        text-align: center;
+        font-family: var(--font-display);
+        
+        font-size: var(--t-h1);
+        line-height: 1;
+        letter-spacing: -0.015em;
+        color: var(--bone-0);
+        margin: 0;
+      }
+      .s2-headline .brass { color: var(--brass); }
+      .s2-lead {
+        text-align: center;
+        font-size: var(--t-caption);
+        font-weight: 700;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--brass);
+        margin: 0;
+      }
+      .s2-cases {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: clamp(1rem, 2.5vw, 2.5rem);
+        align-self: center;
+        width: 100%;
+      }
+      .s2-case {
+        display: flex;
+        flex-direction: column;
+        gap: clamp(0.5rem, 1vh, 0.85rem);
+        padding: clamp(1.25rem, 2.2vw, 2rem);
+        background: rgba(244, 236, 225, 0.03);
+        border: 1px solid var(--hairline-strong);
+        border-radius: 10px;
+        position: relative;
+        overflow: hidden;
+      }
+      .s2-case::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; height: 2px;
+        background: linear-gradient(90deg, var(--brass), transparent 70%);
+      }
+      .s2-case-hd {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: var(--s-3);
+      }
+      .s2-case-n {
+        font-family: var(--font-mono);
+        font-size: clamp(0.7rem, 1vw, 0.9rem);
+        font-weight: 700;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--brass);
+      }
+      .s2-case-tag {
+        font-family: var(--font-body);
+        font-size: clamp(0.6rem, 0.85vw, 0.72rem);
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        padding: 0.28rem 0.6rem;
+        border-radius: 999px;
+      }
+      .s2-case-tag.tag-demand {
+        background: rgba(123, 193, 150, 0.14);
+        color: var(--pulse);
+        border: 1px solid rgba(123, 193, 150, 0.3);
+      }
+      .s2-case-tag.tag-supply {
+        background: rgba(209, 133, 137, 0.1);
+        color: var(--warn);
+        border: 1px solid rgba(209, 133, 137, 0.3);
+      }
+      .s2-case-src {
+        font-family: var(--font-mono);
+        font-size: clamp(0.62rem, 0.85vw, 0.75rem);
+        color: var(--bone-3);
+        letter-spacing: 0.12em;
+      }
+      .s2-case-t {
+        font-family: var(--font-display);
+        
+        font-size: clamp(1.3rem, 2.4vw, 2rem);
+        line-height: 1.15;
+        letter-spacing: -0.01em;
+        color: var(--bone-0);
+        margin: 0.2rem 0;
+      }
+      .s2-case-d {
+        font-size: clamp(0.88rem, 1.2vw, 1rem);
+        color: var(--bone-1);
+        line-height: 1.55;
+        margin: 0;
+      }
+      .s2-case-d strong {
+        color: var(--brass-bright);
+        font-weight: 700;
+      }
+      .s2-case-foot {
+        margin-top: auto;
+        padding-top: clamp(0.5rem, 1vh, 0.75rem);
+        border-top: 1px dashed var(--hairline);
+        font-family: var(--font-mono);
+        font-size: clamp(0.6rem, 0.85vw, 0.72rem);
+        color: var(--bone-3);
+        letter-spacing: 0.08em;
+      }
+      @media (max-width: 900px) {
+        .s2-cases { grid-template-columns: 1fr; }
+      }
+      .s2-foot {
+        text-align: center;
+        max-width: 60ch;
+        margin: 0 auto;
+        font-family: var(--font-display);
+        
+        font-size: var(--t-lead);
+        line-height: 1.35;
+        color: var(--bone-1);
+      }
+      .s2-foot strong {
+        color: var(--bone-0);
+        font-weight: 400;
+      }
+
+      /* =============================================================
+         SLIDE 03 · SOLUTION
+         ============================================================= */
+      .s3 .slide-content {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: clamp(1rem, 3vh, 2rem);
+        padding-top: clamp(5rem, 10vh, 7rem);
+        padding-bottom: clamp(5rem, 10vh, 7rem);
+      }
+      .s3-head {
+        text-align: center;
+        display: flex; flex-direction: column; gap: clamp(0.3rem, 1vh, 0.75rem);
+      }
+      .s3-head .eyebrow {
+        font-size: var(--t-caption);
+        font-weight: 700;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--brass);
+      }
+      .s3-head .h {
+        font-family: var(--font-display);
+        
+        font-size: var(--t-h1);
+        line-height: 1;
+        letter-spacing: -0.015em;
+        color: var(--bone-0);
+        margin: 0;
+      }
+      .s3-head .h .num {
+        font-style: normal;
+        color: var(--brass);
+        font-family: var(--font-mono);
+        font-weight: 500;
+        font-size: 0.62em;
+        letter-spacing: -0.02em;
+        vertical-align: 0.15em;
+      }
+      .s3-modules {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: clamp(0.75rem, 2vw, 2rem);
+        align-self: center;
+      }
+      .s3-module {
+        padding: clamp(1.25rem, 2.5vw, 2rem);
+        background: rgba(244, 236, 225, 0.03);
+        border: 1px solid var(--hairline);
+        border-radius: 10px;
+        display: flex; flex-direction: column; gap: clamp(0.5rem, 1vh, 1rem);
+        position: relative;
+        overflow: hidden;
+        min-height: clamp(12rem, 28vh, 20rem);
+      }
+      .s3-module.active {
+        background: linear-gradient(180deg, rgba(231, 184, 126, 0.1), rgba(201, 169, 110, 0.04));
+        border-color: var(--brass);
+        box-shadow: 0 0 0 1px var(--brass-line), 0 20px 60px rgba(0, 0, 0, 0.35);
+      }
+      .s3-module.active::before {
+        content: '';
+        position: absolute; top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, var(--brass), transparent);
+      }
+      .s3-module.future {
+        opacity: 0.5;
+      }
+      .s3-module-hd {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+      }
+      .s3-module-n {
+        font-family: var(--font-display);
+        
+        font-size: clamp(2.2rem, 4vw, 3.4rem);
+        line-height: 0.9;
+        color: var(--brass);
+      }
+      .s3-module.future .s3-module-n { color: var(--bone-3); }
+      .s3-module-status {
+        font-family: var(--font-mono);
+        font-size: clamp(0.6rem, 0.9vw, 0.75rem);
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        padding: 0.3rem 0.65rem;
+        border-radius: 999px;
+        background: var(--pulse);
+        background: rgba(123, 193, 150, 0.15);
+        color: var(--pulse);
+        border: 1px solid rgba(123, 193, 150, 0.3);
+      }
+      .s3-module.future .s3-module-status {
+        background: rgba(201, 169, 110, 0.08);
+        color: var(--brass);
+        border-color: var(--brass-line);
+      }
+      .s3-module-title {
+        font-family: var(--font-display);
+        
+        font-size: clamp(1.4rem, 2.6vw, 2.2rem);
+        line-height: 1;
+        color: var(--bone-0);
+        margin: 0;
+      }
+      .s3-module-sensor {
+        font-family: var(--font-mono);
+        font-size: clamp(0.65rem, 1vw, 0.85rem);
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--brass);
+      }
+      .s3-module-signals {
+        font-size: var(--t-caption);
+        color: var(--bone-2);
+        line-height: 1.5;
+        margin: 0;
+      }
+      .s3-module-ref {
+        margin-top: auto;
+        font-family: var(--font-mono);
+        font-size: clamp(0.55rem, 0.8vw, 0.7rem);
+        color: var(--bone-3);
+        letter-spacing: 0.1em;
+        padding-top: clamp(0.5rem, 1vw, 0.75rem);
+        border-top: 1px dashed var(--hairline);
+      }
+
+      .s3-foot {
+        text-align: center;
+        font-family: var(--font-display);
+        
+        font-size: var(--t-lead);
+        color: var(--bone-1);
+        max-width: 60ch;
+        margin: 0 auto;
+        line-height: 1.35;
+      }
+      .s3-foot .brass { color: var(--brass); }
+
+      /* =============================================================
+         SLIDE 04 · LIVE DEMO
+         ============================================================= */
+      .s4 .slide-content {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        gap: clamp(2rem, 5vw, 5rem);
+        align-items: center;
+        padding-top: clamp(5rem, 10vh, 7rem);
+        padding-bottom: clamp(5rem, 10vh, 7rem);
+      }
+      .s4-l { display: flex; flex-direction: column; gap: clamp(1rem, 2vh, 1.75rem); }
+      .s4-eyebrow {
+        font-size: var(--t-caption);
+        font-weight: 700;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--brass);
+        display: flex; align-items: center; gap: 0.6rem;
+      }
+      .s4-eyebrow .dot {
+        width: 0.6rem; height: 0.6rem; border-radius: 50%;
+        background: var(--warn);
+        box-shadow: 0 0 14px var(--warn);
+        animation: dotpulse 1.2s ease-in-out infinite;
+      }
+      @keyframes dotpulse {
+        0%, 100% { opacity: 0.5; transform: scale(1); }
+        50%      { opacity: 1; transform: scale(1.15); }
+      }
+      .s4-h {
+        font-family: var(--font-display);
+        
+        font-size: var(--t-h1);
+        line-height: 0.95;
+        letter-spacing: -0.015em;
+        color: var(--bone-0);
+        margin: 0;
+      }
+      .s4-steps {
+        display: flex; flex-direction: column;
+        gap: clamp(0.6rem, 1.2vh, 1rem);
+      }
+      .s4-step {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: clamp(0.75rem, 1.5vw, 1.25rem);
+        align-items: baseline;
+      }
+      .s4-step .n {
+        font-family: var(--font-display);
+        
+        font-size: clamp(1.6rem, 3vw, 2.4rem);
+        color: var(--brass);
+        line-height: 1;
+      }
+      .s4-step .t {
+        font-family: var(--font-body);
+        font-size: var(--t-body);
+        color: var(--bone-1);
+        line-height: 1.4;
+      }
+      .s4-step .t b {
+        color: var(--bone-0);
+        font-weight: 700;
+      }
+      .s4-caption {
+        margin-top: clamp(0.5rem, 1vh, 1rem);
+        padding: clamp(0.75rem, 1.5vw, 1.25rem) clamp(1rem, 2vw, 1.5rem);
+        border: 1px solid var(--brass-line);
+        background: rgba(231, 184, 126, 0.08);
+        border-radius: 6px;
+        font-family: var(--font-display);
+        
+        font-size: var(--t-lead);
+        color: var(--brass-bright);
+        line-height: 1.25;
+      }
+      .s4-r {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: clamp(1rem, 2vh, 1.5rem);
+      }
+      .s4-qr {
+        position: relative;
+        padding: clamp(2rem, 4vw, 3rem);
+        background: var(--bone-0);
+        border-radius: 14px;
+        box-shadow: 0 40px 100px rgba(0, 0, 0, 0.5);
+        aspect-ratio: 1;
+        max-width: min(60vh, 420px);
+        width: 100%;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .s4-qr::before {
+        content: '';
+        position: absolute; inset: -12px;
+        border: 1px dashed var(--brass-line);
+        border-radius: 1.1rem;
+      }
+      .s4-qr-inner {
+        width: 100%; aspect-ratio: 1;
+        background:
+          repeating-linear-gradient(0deg, var(--ink-1) 0, var(--ink-1) 3%, transparent 3%, transparent 6%),
+          repeating-linear-gradient(90deg, var(--ink-1) 0, var(--ink-1) 3%, transparent 3%, transparent 6%);
+        opacity: 0.85;
+        border-radius: 4px;
+        position: relative;
+      }
+      .s4-qr-label {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-display);
+        
+        font-size: clamp(1.2rem, 2vw, 1.8rem);
+        color: var(--ink-0);
+        background: var(--bone-0);
+        text-align: center;
+        padding: 1rem;
+        line-height: 1.2;
+      }
+      .s4-qr-note {
+        font-family: var(--font-mono);
+        font-size: clamp(0.7rem, 1vw, 0.9rem);
+        color: var(--bone-2);
+        letter-spacing: 0.12em;
+        text-align: center;
+      }
+
+      /* =============================================================
+         SLIDE 05 · BUSINESS + ROADMAP
+         ============================================================= */
+      .s5 .slide-content {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: clamp(1rem, 2vh, 1.75rem);
+        padding-top: clamp(5rem, 10vh, 7rem);
+        padding-bottom: clamp(5rem, 10vh, 7rem);
+      }
+      .s5-head {
+        text-align: center;
+        display: flex; flex-direction: column; gap: clamp(0.25rem, 1vh, 0.5rem);
+      }
+      .s5-head .eyebrow {
+        font-size: var(--t-caption);
+        font-weight: 700;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--brass);
+      }
+      .s5-head .h {
+        font-family: var(--font-display);
+        
+        font-size: var(--t-h1);
+        line-height: 1;
+        letter-spacing: -0.015em;
+        margin: 0;
+      }
+      .s5-head .h .brass { color: var(--brass); }
+      .s5-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: clamp(1rem, 3vw, 3rem);
+        align-items: stretch;
+      }
+      .s5-col {
+        display: flex; flex-direction: column;
+        gap: clamp(0.75rem, 1.5vh, 1.25rem);
+      }
+      .s5-col-h {
+        font-size: var(--t-caption);
+        font-weight: 700;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--bone-3);
+        display: flex; align-items: center; gap: 0.6rem;
+      }
+      .s5-col-h::after {
+        content: ''; flex: 1; height: 1px; background: var(--hairline);
+      }
+      .s5-pricing {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: clamp(0.5rem, 1vw, 1rem);
+      }
+      .s5-price {
+        padding: clamp(1rem, 2vw, 1.5rem);
+        border: 1px solid var(--hairline);
+        border-radius: 6px;
+        background: rgba(244, 236, 225, 0.02);
+        display: flex; flex-direction: column; gap: 0.4rem;
+      }
+      .s5-price.us {
+        background: linear-gradient(180deg, rgba(231, 184, 126, 0.12), rgba(201, 169, 110, 0.04));
+        border-color: var(--brass);
+        box-shadow: 0 0 0 1px var(--brass-line), 0 20px 60px rgba(0, 0, 0, 0.3);
+      }
+      .s5-price .name {
+        font-family: var(--font-mono);
+        font-size: clamp(0.65rem, 0.9vw, 0.8rem);
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--bone-3);
+      }
+      .s5-price.us .name { color: var(--brass); }
+      .s5-price .cost {
+        font-family: var(--font-display);
+        
+        font-size: clamp(2rem, 4vw, 3.4rem);
+        line-height: 0.9;
+        color: var(--bone-0);
+      }
+      .s5-price .cost .ccy {
+        font-family: var(--font-display);
+        
+        font-size: 0.5em;
+        color: var(--brass);
+        vertical-align: 0.3em;
+        margin-right: 0.1em;
+      }
+      .s5-price .cost .per {
+        font-family: var(--font-body);
+        font-size: 0.25em;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--bone-3);
+        font-style: normal;
+        margin-left: 0.4em;
+      }
+      .s5-price .note {
+        font-size: clamp(0.72rem, 1vw, 0.9rem);
+        color: var(--bone-2);
+        line-height: 1.35;
+      }
+      .s5-price .note.danger { color: var(--warn); }
+
+      .s5-model-line {
+        font-family: var(--font-display);
+        
+        font-size: var(--t-lead);
+        color: var(--bone-1);
+        line-height: 1.3;
+        padding-top: clamp(0.5rem, 1vh, 0.75rem);
+        border-top: 1px dashed var(--hairline);
+      }
+      .s5-model-line .brass { color: var(--brass); }
+
+      .s5-roadmap {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+      .s5-stop {
+        display: grid;
+        grid-template-columns: 5rem 1fr auto;
+        gap: clamp(0.75rem, 1.5vw, 1.25rem);
+        padding: clamp(0.6rem, 1vh, 0.85rem) 0;
+        border-bottom: 1px dashed var(--hairline);
+        align-items: baseline;
+      }
+      .s5-stop:last-child { border-bottom: none; }
+      .s5-stop .when {
+        font-family: var(--font-mono);
+        font-size: clamp(0.7rem, 1vw, 0.85rem);
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--brass);
+      }
+      .s5-stop .what {
+        font-family: var(--font-display);
+        
+        font-size: clamp(1.1rem, 2vw, 1.6rem);
+        color: var(--bone-0);
+        line-height: 1.1;
+      }
+      .s5-stop .modality {
+        font-family: var(--font-mono);
+        font-size: clamp(0.6rem, 0.85vw, 0.72rem);
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--bone-3);
+        text-align: right;
+      }
+      .s5-stop.today .what { color: var(--brass-bright); }
+      .s5-stop.today .when { color: var(--pulse); }
+
+      .s5-ask {
+        padding: clamp(1rem, 2vw, 1.5rem) clamp(1.25rem, 3vw, 2rem);
+        background: linear-gradient(90deg, rgba(231, 184, 126, 0.12), rgba(122, 169, 184, 0.08));
+        border: 1px solid var(--brass);
+        border-radius: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: clamp(1rem, 2vw, 2rem);
+      }
+      .s5-ask .lab {
+        font-family: var(--font-body);
+        font-size: var(--t-caption);
+        font-weight: 700;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: var(--brass);
+        white-space: nowrap;
+      }
+      .s5-ask .line {
+        font-family: var(--font-display);
+        
+        font-size: var(--t-lead);
+        color: var(--bone-0);
+        line-height: 1.2;
+        text-align: right;
+      }
+
+      /* =============================================================
+         NAVIGATION
+         ============================================================= */
+      .nav-dots {
+        position: fixed;
+        right: clamp(1rem, 2vw, 2rem);
+        top: 50%;
+        transform: translateY(-50%);
+        display: flex;
+        flex-direction: column;
+        gap: clamp(0.5rem, 1vh, 0.85rem);
+        z-index: 50;
+      }
+      .nav-dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        border: 1px solid var(--bone-3);
+        background: transparent;
+        cursor: pointer;
+        padding: 0;
+        transition: all 0.2s;
+      }
+      .nav-dot:hover { border-color: var(--brass); }
+      .nav-dot.active {
+        background: var(--brass);
+        border-color: var(--brass);
+        box-shadow: 0 0 14px var(--brass-glow);
+      }
+      .kbd-hint {
+        position: fixed;
+        left: clamp(1rem, 2vw, 2rem);
+        bottom: clamp(1rem, 2vh, 1.5rem);
+        font-family: var(--font-mono);
+        font-size: clamp(0.6rem, 0.85vw, 0.75rem);
+        letter-spacing: 0.15em;
+        color: var(--bone-3);
+        z-index: 50;
+      }
+      .kbd-hint kbd {
+        font-family: var(--font-mono);
+        padding: 0.15rem 0.4rem;
+        border: 1px solid var(--hairline-strong);
+        border-radius: 3px;
+        background: rgba(244, 236, 225, 0.03);
+        color: var(--bone-1);
+      }
+
+      @media (max-width: 900px) {
+        .s1 .slide-content,
+        .s4 .slide-content,
+        .s5-body {
+          grid-template-columns: 1fr !important;
+        }
+        .s2-problems, .s3-modules {
+          grid-template-columns: 1fr !important;
+        }
+        .nav-dots { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+
+    <!-- =========================================================
+         SLIDE 01 · HOOK
+         ========================================================= -->
+    <section class="slide s1" data-bg="ink" id="s1">
+      <div class="chrome-top">
+        <span class="chrome-case">Case 01 · Hook</span>
+        <span class="chrome-brand"><span class="mark">Resona</span></span>
+      </div>
+      <div class="slide-content">
+        <div class="s1-left">
+          <span class="s1-eyebrow reveal">The number you cannot sit with</span>
+          <p class="s1-pre reveal" style="animation-delay: 0.1s">The average UK knowledge worker now spends</p>
+          <h1 class="s1-hero reveal">9.5<span class="unit">Hours / day</span></h1>
+          <p class="s1-post reveal" style="animation-delay: 0.35s">sitting at a desk.</p>
+          <div class="s1-callout reveal" style="animation-delay: 0.45s">More than they sleep.</div>
+        </div>
+        <div class="s1-right">
+          <div class="tick-strip reveal" style="animation-delay: 0.5s">
+            <span></span><span class="major"></span><span></span><span></span><span></span><span class="major"></span>
+            <span></span><span></span><span></span><span></span><span class="major"></span><span></span>
+            <span></span><span></span><span class="major"></span><span></span><span></span><span></span>
+            <span></span><span class="major"></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div class="s1-day-bar reveal" style="animation-delay: 0.55s">
+            <div class="sleep">Sleep<br>8h</div>
+            <div class="sit">Sitting<br>9.5h</div>
+            <div class="move">Move<br>2.5h</div>
+            <div class="other">Other<br>4h</div>
+          </div>
+          <div class="s1-day-legend reveal" style="animation-delay: 0.7s">
+            <span>ONS UK Time Use Survey · 2022-23</span>
+            <span><strong>40%</strong> sitting</span>
+          </div>
+          <div class="s1-strip reveal" style="animation-delay: 0.85s">
+            <div class="s1-strip-row">
+              <span class="k">Cardiovascular</span>
+              <span class="v">+147<span class="small">% risk</span></span>
+              <span class="src">Wilmot et al, Diabetologia, 2012</span>
+            </div>
+            <div class="s1-strip-row">
+              <span class="k">Type 2 diabetes</span>
+              <span class="v">+112<span class="small">% risk</span></span>
+              <span class="src">meta-analysis, 794,577 people</span>
+            </div>
+            <div class="s1-strip-row">
+              <span class="k">All-cause mortality</span>
+              <span class="v">+40<span class="small">% 8+ hrs/d</span></span>
+              <span class="src">Ekelund et al, The Lancet, 2016</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="chrome-bottom">
+        <span>Sedentary · Cardiovascular · Metabolic · Respiratory</span>
+        <span>01 / 05</span>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         SLIDE 02 · PROBLEM · with case studies
+         ========================================================= -->
+    <section class="slide s2" data-bg="warm" id="s2">
+      <div class="chrome-top">
+        <span class="chrome-case">Case 02 · Problem</span>
+        <span class="chrome-brand"><span class="mark">Resona</span></span>
+      </div>
+      <div class="slide-content">
+        <p class="s2-lead reveal">The market is moving. The tools are not.</p>
+        <h2 class="s2-headline reveal" style="animation-delay: 0.1s">
+          Wall Street is <span class="brass">buying</span> wellness.<br>The hardware is <span class="brass">failing</span> it.
+        </h2>
+
+        <div class="s2-cases">
+          <article class="s2-case reveal" style="animation-delay: 0.3s">
+            <div class="s2-case-hd">
+              <span class="s2-case-n">Case A</span>
+              <span class="s2-case-tag tag-demand">Demand validated</span>
+            </div>
+            <div class="s2-case-src">Hedgeweek · July 2025</div>
+            <h3 class="s2-case-t">Citadel hires<br>its first Chief Medical Officer.</h3>
+            <p class="s2-case-d">
+              Ken Griffin appoints Dr. David Stark (ex-Morgan Stanley, Harvard-trained pediatric neurologist)
+              to drive "peak performance" across the firm. A signal the $5.7 trillion hedge fund industry now
+              treats employee health as alpha.
+            </p>
+            <div class="s2-case-foot">First-ever CMO on Wall Street &nbsp;·&nbsp; July 2025</div>
+          </article>
+
+          <article class="s2-case reveal" style="animation-delay: 0.5s">
+            <div class="s2-case-hd">
+              <span class="s2-case-n">Case B</span>
+              <span class="s2-case-tag tag-supply">Supply broken</span>
+            </div>
+            <div class="s2-case-src">Healthcare Innovation · Fitbit corporate study</div>
+            <h3 class="s2-case-t">The wearable gap.<br>£1,000 saved, then abandoned.</h3>
+            <p class="s2-case-d">
+              Enrolled employees saved an average £1,000 per year in healthcare costs
+              <strong>but 40% dropped off by month three.</strong> Fitbit corporate sales have declined
+              every year since 2018. The demand is there. The hardware isn't the answer.
+            </p>
+            <div class="s2-case-foot">Global corporate wellness market: $53 bn &nbsp;·&nbsp; mostly unloved</div>
+          </article>
+        </div>
+
+        <p class="s2-foot reveal" style="animation-delay: 0.85s">
+          No daily, private, hardware-free check-in for a whole team. <strong>Until now.</strong>
+        </p>
+      </div>
+      <div class="chrome-bottom">
+        <span>Citadel · July 2025 &nbsp;·&nbsp; Fitbit corporate · Healthcare Innovation study</span>
+        <span>02 / 05</span>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         SLIDE 03 · SOLUTION
+         ========================================================= -->
+    <section class="slide s3" data-bg="cool" id="s3">
+      <div class="chrome-top">
+        <span class="chrome-case">Case 03 · Solution</span>
+        <span class="chrome-brand"><span class="mark">Resona</span></span>
+      </div>
+      <div class="slide-content">
+        <div class="s3-head">
+          <span class="eyebrow reveal">Three signals · one phone · two minutes</span>
+          <h2 class="h reveal" style="animation-delay: 0.1s">
+            Every phone<br>is an <em>instrument.</em>
+          </h2>
+        </div>
+
+        <div class="s3-modules">
+          <div class="s3-module active reveal" style="animation-delay: 0.3s">
+            <div class="s3-module-hd">
+              <span class="s3-module-n">01</span>
+              <span class="s3-module-status">Live</span>
+            </div>
+            <h3 class="s3-module-title">Breath.</h3>
+            <span class="s3-module-sensor">Microphone · Acoustic spirometry</span>
+            <p class="s3-module-signals">FEV1, FVC, PEF. Forced exhalation analysed from turbulent flow noise. Normalised to Hankinson NHANES III predicted values.</p>
+            <span class="s3-module-ref">6s blow · 48 kHz PCM · on-device</span>
+          </div>
+
+          <div class="s3-module active reveal" style="animation-delay: 0.45s">
+            <div class="s3-module-hd">
+              <span class="s3-module-n">02</span>
+              <span class="s3-module-status">Live</span>
+            </div>
+            <h3 class="s3-module-title">Motion.</h3>
+            <span class="s3-module-sensor">IMU · DeviceMotion API</span>
+            <p class="s3-module-signals">Tremor from 10s stillness. Gait cadence and stride variability from 10-step walk. Standing-up streaks over time.</p>
+            <span class="s3-module-ref">60 Hz accelerometer · FFT bands</span>
+          </div>
+
+          <div class="s3-module future reveal" style="animation-delay: 0.6s">
+            <div class="s3-module-hd">
+              <span class="s3-module-n">03</span>
+              <span class="s3-module-status">Q3</span>
+            </div>
+            <h3 class="s3-module-title">Heart.</h3>
+            <span class="s3-module-sensor">Front camera · rPPG</span>
+            <p class="s3-module-signals">Resting heart rate and HRV from 30s face video. Sub-pixel colour oscillations, bandpass 0.7 to 4 Hz.</p>
+            <span class="s3-module-ref">MediaPipe ROI · Q3 2026</span>
+          </div>
+        </div>
+
+        <p class="s3-foot reveal" style="animation-delay: 0.8s">
+          <span class="brass">All processing on-device.</span> No audio, no video, no GPS leaves the phone.
+          Only extracted numbers touch the server.
+        </p>
+      </div>
+      <div class="chrome-bottom">
+        <span>Module 01 · Breath ▸ Module 02 · Motion ▸ Module 03 · Heart</span>
+        <span>03 / 05</span>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         SLIDE 04 · LIVE DEMO
+         ========================================================= -->
+    <section class="slide s4" data-bg="stage" id="s4">
+      <div class="chrome-top">
+        <span class="chrome-case">Case 04 · Live demo</span>
+        <span class="chrome-brand"><span class="mark">Resona</span></span>
+      </div>
+      <div class="slide-content">
+        <div class="s4-l">
+          <span class="s4-eyebrow reveal"><span class="dot"></span>Live · on the projector beside me</span>
+          <h2 class="s4-h reveal" style="animation-delay: 0.1s">Scan. Blow.<br><em>Fill the bar.</em></h2>
+
+          <div class="s4-steps">
+            <div class="s4-step reveal" style="animation-delay: 0.3s">
+              <span class="n">01</span>
+              <span class="t">Scan the code with your phone camera. You land on an onboarding form.</span>
+            </div>
+            <div class="s4-step reveal" style="animation-delay: 0.4s">
+              <span class="n">02</span>
+              <span class="t">Enter a team code. Try <b>ENG</b>, <b>DESIGN</b>, or <b>SALES</b>.</span>
+            </div>
+            <div class="s4-step reveal" style="animation-delay: 0.5s">
+              <span class="n">03</span>
+              <span class="t">Blow into the bottom of your phone for six seconds.</span>
+            </div>
+            <div class="s4-step reveal" style="animation-delay: 0.6s">
+              <span class="n">04</span>
+              <span class="t">See your numbers, your GP letter, your team on the board.</span>
+            </div>
+          </div>
+
+          <div class="s4-caption reveal" style="animation-delay: 0.75s">
+            First team to 300 litres wins.
+          </div>
+        </div>
+
+        <div class="s4-r reveal" style="animation-delay: 0.25s">
+          <div class="s4-qr">
+            <div class="s4-qr-inner">
+              <div class="s4-qr-label">
+                <span>QR appears<br>live on the<br>projector</span>
+              </div>
+            </div>
+          </div>
+          <div class="s4-qr-note">Scan from the big screen · works on any phone</div>
+        </div>
+      </div>
+      <div class="chrome-bottom">
+        <span>GP letter written live by GLM 5.1 · no audio leaves your phone</span>
+        <span>04 / 05</span>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         SLIDE 05 · BUSINESS + ROADMAP
+         ========================================================= -->
+    <section class="slide s5" data-bg="brass" id="s5">
+      <div class="chrome-top">
+        <span class="chrome-case">Case 05 · Business</span>
+        <span class="chrome-brand"><span class="mark">Resona</span></span>
+      </div>
+      <div class="slide-content">
+        <div class="s5-head">
+          <span class="eyebrow reveal">Per-seat SaaS · Slack and Teams day one</span>
+          <h2 class="h reveal" style="animation-delay: 0.1s">
+            <span class="brass">£3</span> a seat. Zero hardware.
+          </h2>
+        </div>
+
+        <div class="s5-body">
+          <div class="s5-col">
+            <span class="s5-col-h">Pricing against the market</span>
+            <div class="s5-pricing">
+              <div class="s5-price reveal" style="animation-delay: 0.3s">
+                <span class="name">Fitbit for Work</span>
+                <span class="cost"><span class="ccy">£</span>12<span class="per">/seat/mo</span></span>
+                <span class="note danger">40% drop-off by month 3</span>
+              </div>
+              <div class="s5-price us reveal" style="animation-delay: 0.4s">
+                <span class="name">Resona at Work</span>
+                <span class="cost"><span class="ccy">£</span>3<span class="per">/seat/mo</span></span>
+                <span class="note">Zero hardware · daily touchpoint</span>
+              </div>
+            </div>
+            <p class="s5-model-line reveal" style="animation-delay: 0.55s">
+              Quarter the cost. <span class="brass">Four times the frequency.</span>
+              Slack nudge at 2pm: <em>"Resona check-in due."</em>
+            </p>
+          </div>
+
+          <div class="s5-col">
+            <span class="s5-col-h">Same phone · more body systems</span>
+            <div class="s5-roadmap">
+              <div class="s5-stop today reveal" style="animation-delay: 0.35s">
+                <span class="when">Today</span>
+                <span class="what">Breath + Motion.</span>
+                <span class="modality">Mic · IMU</span>
+              </div>
+              <div class="s5-stop reveal" style="animation-delay: 0.45s">
+                <span class="when">Q3</span>
+                <span class="what">Heart.</span>
+                <span class="modality">Camera · rPPG</span>
+              </div>
+              <div class="s5-stop reveal" style="animation-delay: 0.55s">
+                <span class="when">Q4</span>
+                <span class="what">Sleep telemetry.</span>
+                <span class="modality">IMU · overnight</span>
+              </div>
+              <div class="s5-stop reveal" style="animation-delay: 0.65s">
+                <span class="when">2027</span>
+                <span class="what">Mental load.</span>
+                <span class="modality">Voice markers</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="s5-ask reveal" style="animation-delay: 0.85s">
+          <span class="lab">The ask</span>
+          <span class="line">Watcha's enterprise network. Pilot with five portfolio companies, Monday.</span>
+        </div>
+      </div>
+      <div class="chrome-bottom">
+        <span>Every body has a rhythm. Now every team has one too.</span>
+        <span>05 / 05</span>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         NAVIGATION UI
+         ========================================================= -->
+    <div class="nav-dots" id="nav-dots">
+      <button class="nav-dot active" data-target="s1" aria-label="Slide 1"></button>
+      <button class="nav-dot" data-target="s2" aria-label="Slide 2"></button>
+      <button class="nav-dot" data-target="s3" aria-label="Slide 3"></button>
+      <button class="nav-dot" data-target="s4" aria-label="Slide 4"></button>
+      <button class="nav-dot" data-target="s5" aria-label="Slide 5"></button>
+    </div>
+
+    <div class="kbd-hint"><kbd>→</kbd> next · <kbd>←</kbd> back · <kbd>F</kbd> fullscreen</div>
+
+    <script>
+      // =============================================================
+      // NAV: keyboard, click, dots, fullscreen
+      // =============================================================
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const dots = Array.from(document.querySelectorAll('.nav-dot'));
+      let current = 0;
+
+      function goTo(i) {
+        current = Math.max(0, Math.min(slides.length - 1, i));
+        slides[current].scrollIntoView({ behavior: 'smooth', block: 'start' });
+        dots.forEach((d, idx) => d.classList.toggle('active', idx === current));
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (['ArrowDown', 'ArrowRight', 'PageDown', ' '].includes(e.key)) {
+          e.preventDefault();
+          goTo(current + 1);
+        } else if (['ArrowUp', 'ArrowLeft', 'PageUp'].includes(e.key)) {
+          e.preventDefault();
+          goTo(current - 1);
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          goTo(0);
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          goTo(slides.length - 1);
+        } else if (e.key === 'f' || e.key === 'F') {
+          e.preventDefault();
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen?.();
+          } else {
+            document.exitFullscreen?.();
+          }
+        }
+      });
+
+      dots.forEach((dot, idx) => {
+        dot.addEventListener('click', () => goTo(idx));
+      });
+
+      // Update active dot when user scrolls manually (trackpad / swipe)
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && entry.intersectionRatio > 0.55) {
+            const idx = slides.indexOf(entry.target);
+            if (idx !== -1) {
+              current = idx;
+              dots.forEach((d, i) => d.classList.toggle('active', i === current));
+            }
+          }
+        });
+      }, { threshold: [0.55] });
+      slides.forEach((s) => obs.observe(s));
+    </script>
+  </body>
+</html>
