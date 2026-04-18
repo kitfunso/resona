@@ -5,13 +5,30 @@
 let audioContextSingleton = null;
 
 export function unlockAudio() {
-  if (audioContextSingleton) return audioContextSingleton;
+  if (audioContextSingleton) {
+    // Already created. Still worth kicking resume() each tap in case iOS
+    // re-suspended it (happens when the tab loses focus or after long idle).
+    if (audioContextSingleton.state === 'suspended') {
+      audioContextSingleton.resume();
+    }
+    return audioContextSingleton;
+  }
   const Ctor = window.AudioContext || window.webkitAudioContext;
   if (!Ctor) {
     throw new Error('Web Audio API not supported on this device');
   }
   audioContextSingleton = new Ctor();
-  // Resume in case the browser created it in "suspended" state.
+  // iOS Safari unlock pattern: creating the context is not enough. You must
+  // also play an actual AudioBufferSourceNode within the user-gesture tick
+  // for the context to transition from "suspended" to "running". A single
+  // sample of silence at 22050 Hz is the canonical trick.
+  try {
+    const buf = audioContextSingleton.createBuffer(1, 1, 22050);
+    const src = audioContextSingleton.createBufferSource();
+    src.buffer = buf;
+    src.connect(audioContextSingleton.destination);
+    src.start(0);
+  } catch { /* ignore */ }
   if (audioContextSingleton.state === 'suspended') {
     audioContextSingleton.resume();
   }
