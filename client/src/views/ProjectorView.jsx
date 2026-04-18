@@ -760,7 +760,9 @@ export default function ProjectorView() {
                   <div className={`pj-team ${i === 0 ? 'rank-1' : ''}`} key={t.teamCode}>
                     <span className="rk">#{i + 1} team</span>
                     <span className="code">{t.teamCode}</span>
-                    <span className="metric">{t.totalLiters.toFixed(1)} L · {t.count} in</span>
+                    <span className="metric">
+                      {t.meanPct != null ? `${Math.round(t.meanPct)}% mean` : '— mean'} · {t.count} in
+                    </span>
                   </div>
                 ))}
               </div>

@@ -74,6 +74,9 @@ function aggregateTeams() {
 }
 
 function teamLeaderboard(limit = 3) {
+  // Rank by mean percent-predicted so team size does not decide the winner.
+  // A solo member at 105% beats a crowded team averaging 90%. Demographics
+  // are already baked into percent-predicted so age/sex/height are fair.
   const teams = aggregateTeams();
   const entries = [];
   for (const [code, t] of teams.entries()) {
@@ -84,7 +87,7 @@ function teamLeaderboard(limit = 3) {
       meanPct: t.count > 0 ? t.pctSum / t.count : null,
     });
   }
-  entries.sort((a, b) => b.totalLiters - a.totalLiters);
+  entries.sort((a, b) => (b.meanPct ?? -Infinity) - (a.meanPct ?? -Infinity));
   return entries.slice(0, limit);
 }
 
