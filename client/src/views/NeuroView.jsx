@@ -381,15 +381,45 @@ const css = `
     letter-spacing: 0.24em; text-transform: uppercase;
     color: var(--brass-bright); margin-bottom: 0.2rem;
   }
-  .nv-report-loading {
-    display: flex; align-items: center; gap: var(--s-3);
-    padding: var(--s-4); font-size: 0.85rem; color: var(--bone-2);
+  .nv-analyzing {
+    display: flex; flex-direction: column; align-items: center;
+    gap: var(--s-4);
+    padding: var(--s-6) 0;
   }
-  .nv-report-loading .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--brass); animation: nv-pulse 1.2s ease-in-out infinite;
+  .nv-analyzing-bars {
+    display: flex; gap: 5px;
+    align-items: flex-end;
+    height: 48px;
   }
-  @keyframes nv-pulse { 0%,100%{ opacity: 0.4; transform: scale(1);} 50%{ opacity: 1; transform: scale(1.4);} }
+  .nv-analyzing-bars span {
+    display: block;
+    width: 4px;
+    background: var(--brass);
+    border-radius: 1px;
+    animation: nv-wave 1.1s ease-in-out infinite;
+  }
+  .nv-analyzing-bars span:nth-child(1) { animation-delay: 0s; }
+  .nv-analyzing-bars span:nth-child(2) { animation-delay: 0.08s; }
+  .nv-analyzing-bars span:nth-child(3) { animation-delay: 0.16s; }
+  .nv-analyzing-bars span:nth-child(4) { animation-delay: 0.24s; }
+  .nv-analyzing-bars span:nth-child(5) { animation-delay: 0.32s; }
+  .nv-analyzing-bars span:nth-child(6) { animation-delay: 0.40s; }
+  .nv-analyzing-bars span:nth-child(7) { animation-delay: 0.48s; }
+  @keyframes nv-wave {
+    0%, 100% { height: 8px; opacity: 0.55; }
+    50%      { height: 48px; opacity: 1; }
+  }
+  .nv-analyzing-label {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    color: var(--bone-1);
+  }
+  .nv-analyzing-sub {
+    font-size: 0.72rem;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--bone-3);
+  }
 
   .nv-caveat {
     padding: var(--s-3) var(--s-4);
@@ -408,6 +438,65 @@ const css = `
     border-radius: var(--r-sm);
     font-size: 0.85rem;
     line-height: 1.5;
+  }
+
+  /* ========= Volume / silent-mode warning ========= */
+  .nv-volwarn {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--s-3);
+    align-items: center;
+    padding: var(--s-3);
+    background: rgba(231, 184, 126, 0.06);
+    border: 1px solid var(--brass-line);
+    border-radius: var(--r-sm);
+    font-size: 0.78rem;
+    color: var(--bone-1);
+    line-height: 1.45;
+  }
+  .nv-volwarn .ic {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    color: var(--brass-bright);
+    line-height: 1;
+  }
+  .nv-volwarn strong { color: var(--bone-0); font-weight: 700; }
+
+  /* ========= Full-card flash overlay (start / end cue) ========= */
+  .nv-flash {
+    position: absolute;
+    inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+    z-index: 5;
+    animation: nv-flash-in 0.9s ease-out forwards;
+  }
+  .nv-flash[data-k="go"] {
+    background: radial-gradient(circle at center, rgba(123, 193, 150, 0.55), rgba(123, 193, 150, 0.0) 70%);
+  }
+  .nv-flash[data-k="stop"] {
+    background: radial-gradient(circle at center, rgba(209, 133, 137, 0.55), rgba(209, 133, 137, 0.0) 70%);
+  }
+  .nv-flash .label {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(2.4rem, 11vw, 4.2rem);
+    line-height: 1;
+    letter-spacing: 0.04em;
+    color: var(--bone-0);
+    text-shadow: 0 0 32px currentColor;
+    text-align: center;
+    width: 100%;
+    padding: 0 var(--s-3);
+    box-sizing: border-box;
+  }
+  .nv-flash[data-k="go"] .label { color: #b8e3c7; }
+  .nv-flash[data-k="stop"] .label { color: #f3c7c8; }
+  @keyframes nv-flash-in {
+    0%   { opacity: 0; transform: scale(0.94); }
+    15%  { opacity: 1; transform: scale(1.04); }
+    55%  { opacity: 1; transform: scale(1.0); }
+    100% { opacity: 0; transform: scale(1.0); }
   }
 `;
 
@@ -431,40 +520,161 @@ async function prep(seconds, onTick) {
   onTick(0);
 }
 
-// Use the already-unlocked AudioContext singleton from recorder.js so iOS
-// Safari plays the beep even 5+ seconds after the user tap (we cannot create
-// a new AudioContext once the gesture window expires, but we CAN play tones
-// on an existing one that was unlocked at tap time).
-function buzz({ kind }) {
+// Play a short beep on the shared AudioContext. iOS Safari suspends the
+// context after a few seconds of silence, so we MUST await resume() before
+// scheduling oscillator nodes, otherwise currentTime is frozen and nothing
+// plays. navigator.vibrate does not exist on iOS at all, so audio is the
+// only cue for the gait test (phone in pocket) and we also render a big
+// visual flash for the tremor test (phone in hand).
+async function buzz({ kind }) {
   try {
     if (navigator.vibrate) {
-      navigator.vibrate(kind === 'start' ? [120, 60, 120] : [240]);
+      navigator.vibrate(kind === 'start' ? [180, 80, 180, 80, 180] : [280, 120, 280]);
     }
   } catch { /* ignore */ }
   try {
     const ctx = getAudioContext(); // throws if not unlocked yet
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state !== 'running') {
+      try { await ctx.resume(); } catch { /* may reject silently on iOS */ }
+    }
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'sine';
-    // Start: two beeps (880 Hz + 1100 Hz) so iOS/Android clearly know the test began.
-    // End: single longer tone (523 Hz).
+    osc.type = 'square'; // square wave cuts through ambient noise better than sine
     if (kind === 'start') {
+      // Three rising chirps, ~180ms each with 80ms gaps. Total ~0.80s.
       osc.frequency.setValueAtTime(880, now);
-      osc.frequency.setValueAtTime(1100, now + 0.16);
+      osc.frequency.setValueAtTime(1100, now + 0.26);
+      osc.frequency.setValueAtTime(1320, now + 0.52);
     } else {
-      osc.frequency.setValueAtTime(523, now);
+      // Two descending chirps, ~220ms each. Total ~0.60s.
+      osc.frequency.setValueAtTime(660, now);
+      osc.frequency.setValueAtTime(440, now + 0.26);
     }
+    const endAt = kind === 'start' ? 0.80 : 0.60;
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + (kind === 'start' ? 0.32 : 0.4));
+    gain.gain.exponentialRampToValueAtTime(0.45, now + 0.02);
+    gain.gain.setValueAtTime(0.45, now + endAt - 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + endAt);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(now);
-    osc.stop(now + (kind === 'start' ? 0.34 : 0.42));
+    osc.stop(now + endAt + 0.02);
+    console.log('[buzz]', kind, 'ctx.state=', ctx.state);
   } catch (err) {
     console.warn('[buzz] audio blocked:', err?.message);
+  }
+}
+
+// Generate a PCM beep as a data URI so we can feed it to an HTML5 <audio>
+// element as a backup path. Some environments block Web Audio but will play
+// an Audio element, and vice versa. We try both on the test button.
+function makeBeepDataURI({ freq = 1100, durationMs = 700, volume = 0.8 } = {}) {
+  const sampleRate = 22050;
+  const samples = Math.floor((sampleRate * durationMs) / 1000);
+  const bytes = 44 + samples * 2;
+  const buf = new ArrayBuffer(bytes);
+  const dv = new DataView(buf);
+  dv.setUint32(0, 0x52494646, false);       // "RIFF"
+  dv.setUint32(4, bytes - 8, true);
+  dv.setUint32(8, 0x57415645, false);       // "WAVE"
+  dv.setUint32(12, 0x666d7420, false);      // "fmt "
+  dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true);                // PCM
+  dv.setUint16(22, 1, true);                // mono
+  dv.setUint32(24, sampleRate, true);
+  dv.setUint32(28, sampleRate * 2, true);
+  dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true);
+  dv.setUint32(36, 0x64617461, false);      // "data"
+  dv.setUint32(40, samples * 2, true);
+  for (let i = 0; i < samples; i++) {
+    // Square wave for max perceived loudness, with a short attack/decay envelope.
+    const t = i / sampleRate;
+    const env = Math.min(1, t / 0.01, (durationMs / 1000 - t) / 0.04);
+    const phase = ((freq * t) % 1) < 0.5 ? 1 : -1;
+    const s = phase * volume * Math.max(0, env) * 32767;
+    dv.setInt16(44 + i * 2, s | 0, true);
+  }
+  let bin = '';
+  const view = new Uint8Array(buf);
+  for (let i = 0; i < view.length; i++) bin += String.fromCharCode(view[i]);
+  return 'data:audio/wav;base64,' + btoa(bin);
+}
+
+let beepAudioEl = null;
+function playBackupBeep() {
+  try {
+    if (!beepAudioEl) {
+      beepAudioEl = new Audio(makeBeepDataURI());
+      beepAudioEl.preload = 'auto';
+      beepAudioEl.setAttribute('playsinline', 'true');
+    }
+    beepAudioEl.currentTime = 0;
+    return beepAudioEl.play(); // Promise
+  } catch (e) {
+    return Promise.reject(e);
+  }
+}
+
+// Fires both paths and returns a short diagnostic string for on-screen display.
+// ctx state is read AFTER buzz so we know what iOS did with resume().
+async function testSoundDiag() {
+  let ctxBefore = 'none';
+  let ctxAfter = 'none';
+  let webAudioErr = null;
+  let htmlAudioErr = null;
+  try { unlockAudio(); } catch (e) { webAudioErr = e?.message || String(e); }
+  try {
+    const ctx = getAudioContext();
+    ctxBefore = ctx.state;
+    await buzz({ kind: 'start' });
+    ctxAfter = ctx.state;
+  } catch (e) {
+    webAudioErr = webAudioErr || e?.message || String(e);
+  }
+  try {
+    await playBackupBeep();
+  } catch (e) {
+    htmlAudioErr = e?.message || String(e);
+  }
+  const ua = navigator.userAgent.replace(/.*\((.*?)\).*/, '$1').slice(0, 48);
+  return {
+    ctxBefore, ctxAfter,
+    webAudio: webAudioErr ? `FAIL ${webAudioErr}` : 'ok',
+    htmlAudio: htmlAudioErr ? `FAIL ${htmlAudioErr}` : 'ok',
+    vibrate: navigator.vibrate ? 'available' : 'none',
+    ua,
+  };
+}
+
+// Keep the iOS AudioContext alive during the 5s prep countdown by scheduling
+// an inaudible tick every second. Without this, iOS Safari often suspends
+// the context and the start buzz fails silently.
+function startAudioKeepalive() {
+  let cancelled = false;
+  try {
+    const ctx = getAudioContext();
+    const tick = () => {
+      if (cancelled) return;
+      try {
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 20; // sub-audible
+        gain.gain.setValueAtTime(0.0001, now);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.05);
+      } catch { /* ignore */ }
+    };
+    const id = setInterval(tick, 1000);
+    tick();
+    return () => { cancelled = true; clearInterval(id); };
+  } catch {
+    return () => {};
   }
 }
 
@@ -484,6 +694,8 @@ export default function NeuroView({ onBack, demographics }) {
   const [error, setError] = useState(null);
   const [report, setReport] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [flash, setFlash] = useState(null); // 'go' | 'stop' | null
+  const [soundDiag, setSoundDiag] = useState(null);
 
   async function fetchReport(currentTremor, currentGait) {
     setReportLoading(true);
@@ -530,15 +742,30 @@ export default function NeuroView({ onBack, demographics }) {
     }
   }
 
+  function flashCue(kind, ms = 900) {
+    setFlash(kind);
+    setTimeout(() => setFlash(null), ms);
+  }
+
+  async function fireCue(kind) {
+    // Fire both paths in parallel. If WebAudio is blocked, HTML5 Audio may
+    // still play. If HTML5 Audio is blocked, WebAudio may still play.
+    await Promise.allSettled([buzz({ kind }), playBackupBeep()]);
+  }
+
   async function runTremor() {
     setStage('tremor_prep');
     setPrepCount(PREP_SECONDS);
+    const stopKeepalive = startAudioKeepalive();
     await prep(PREP_SECONDS, setPrepCount);
-    buzz({ kind: 'start' });
+    stopKeepalive();
+    flashCue('go');
+    await fireCue('start');
     setStage('tremor_record');
     setProgress(0);
     const motion = await captureMotion({ durationMs: 10000, onTick: ({ pct }) => setProgress(pct) });
-    buzz({ kind: 'end' });
+    flashCue('stop');
+    await fireCue('end');
     const result = analyseTremor(motion);
     setTremor(result);
     setStage('tremor_done');
@@ -547,12 +774,16 @@ export default function NeuroView({ onBack, demographics }) {
   async function runGait() {
     setStage('gait_prep');
     setPrepCount(PREP_SECONDS);
+    const stopKeepalive = startAudioKeepalive();
     await prep(PREP_SECONDS, setPrepCount);
-    buzz({ kind: 'start' });
+    stopKeepalive();
+    flashCue('go');
+    await fireCue('start');
     setStage('gait_record');
     setProgress(0);
     const motion = await captureMotion({ durationMs: 10000, onTick: ({ pct }) => setProgress(pct) });
-    buzz({ kind: 'end' });
+    flashCue('stop');
+    await fireCue('end');
     const result = analyseGait(motion);
     setGait(result);
     setStage('gait_done');
@@ -578,6 +809,11 @@ export default function NeuroView({ onBack, demographics }) {
 
       {/* Test 1: Stillness */}
       <section className="nv-step" data-state={tremorState}>
+        {flash && (tremorState === 'active') && (
+          <div className="nv-flash" data-k={flash}>
+            <span className="label">{flash === 'go' ? 'HOLD STILL' : 'DONE'}</span>
+          </div>
+        )}
         <div className="nv-step-hd">
           <span className="n">01</span>
           <span className="t">Stillness · Tremor</span>
@@ -589,10 +825,52 @@ export default function NeuroView({ onBack, demographics }) {
         </p>
 
         {stage === 'intro' && (
-          <button className="nv-btn" onClick={() => ensurePermissionAndRun(runTremor)}>
-            <span>Start stillness test</span>
-            <span className="arrow">→</span>
-          </button>
+          <>
+            <div className="nv-volwarn">
+              <span className="ic">§</span>
+              <span>
+                <strong>Volume up, silent switch off.</strong> The phone plays a start and stop cue.
+                For the walk test, audio is how you know to start.
+              </span>
+            </div>
+            <button
+              className="nv-btn-ghost"
+              onClick={async () => {
+                const d = await testSoundDiag();
+                setSoundDiag(d);
+              }}
+              style={{ marginBottom: 'var(--s-2)' }}
+            >
+              Tap to test sound
+            </button>
+            {soundDiag && (
+              <div
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.68rem',
+                  lineHeight: 1.6,
+                  padding: 'var(--s-3)',
+                  background: 'rgba(244, 236, 225, 0.04)',
+                  border: '1px solid var(--hairline)',
+                  borderRadius: 'var(--r-sm)',
+                  color: 'var(--bone-1)',
+                  wordBreak: 'break-word',
+                  marginBottom: 'var(--s-2)',
+                }}
+              >
+                ctx before: <strong>{soundDiag.ctxBefore}</strong><br/>
+                ctx after: <strong>{soundDiag.ctxAfter}</strong><br/>
+                web audio: <strong>{soundDiag.webAudio}</strong><br/>
+                html audio: <strong>{soundDiag.htmlAudio}</strong><br/>
+                vibrate: <strong>{soundDiag.vibrate}</strong><br/>
+                ua: {soundDiag.ua}
+              </div>
+            )}
+            <button className="nv-btn" onClick={() => ensurePermissionAndRun(runTremor)}>
+              <span>Start stillness test</span>
+              <span className="arrow">→</span>
+            </button>
+          </>
         )}
 
         {stage === 'tremor_prep' && (
@@ -643,6 +921,11 @@ export default function NeuroView({ onBack, demographics }) {
       {/* Test 2: Gait */}
       {(stage === 'tremor_done' || stage === 'gait_prep' || stage === 'gait_record' || stage === 'gait_done') && (
         <section className="nv-step" data-state={gaitState}>
+          {flash && (gaitState === 'active') && (
+            <div className="nv-flash" data-k={flash}>
+              <span className="label">{flash === 'go' ? 'WALK' : 'DONE'}</span>
+            </div>
+          )}
           <div className="nv-step-hd">
             <span className="n">02</span>
             <span className="t">Walk · Gait</span>
@@ -709,9 +992,12 @@ export default function NeuroView({ onBack, demographics }) {
       {/* Neuro report */}
       {stage === 'gait_done' && reportLoading && (
         <div className="nv-report">
-          <div className="nv-report-loading">
-            <span className="dot" />
-            Building your personalised Neuro report...
+          <div className="nv-analyzing">
+            <div className="nv-analyzing-bars">
+              <span /><span /><span /><span /><span /><span /><span />
+            </div>
+            <div className="nv-analyzing-label">Reading your motion trace...</div>
+            <div className="nv-analyzing-sub">GLM 5.1 is interpreting the signals</div>
           </div>
         </div>
       )}
