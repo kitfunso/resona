@@ -117,9 +117,12 @@ function recordBlow({ sessionId, fev1, fvc, pef, percentPredicted, flagged, team
   // Fallback id for clients on old builds and for seedDemoMode synthetic blows.
   const id = sessionId || `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const prev = room.participants.get(id);
-  const isBetter = !prev || fvc > prev.bestFvc;
+  const isFirstBlow = !prev;
+  const improvedBest = isFirstBlow || fvc > prev.bestFvc;
+  const previousBestFvc = prev?.bestFvc ?? 0;
+  const fvcDelta = improvedBest ? fvc - previousBestFvc : 0;
 
-  if (isBetter) {
+  if (improvedBest) {
     room.participants.set(id, {
       bestFev1: fev1,
       bestFvc: fvc,
@@ -142,6 +145,8 @@ function recordBlow({ sessionId, fev1, fvc, pef, percentPredicted, flagged, team
   room.newestBlowPct = percentPredicted;
   room.recentBlows.push({ fev1, fvc, pef, pct: percentPredicted, flagged, teamCode, ts: Date.now() });
   if (room.recentBlows.length > 50) room.recentBlows.shift();
+
+  return { improvedBest, isFirstBlow, fvcDelta };
 }
 
 function pushNarratorLine(line) {
@@ -473,7 +478,7 @@ app.post('/api/analyze-blow', async (req, res) => {
   const teamCode = typeof demographics.teamCode === 'string' && demographics.teamCode.length > 0
     ? demographics.teamCode.toUpperCase().slice(0, 6)
     : null;
-  recordBlow({
+  const blowResult = recordBlow({
     sessionId,
     fev1: estimate.fev1,
     fvc: estimate.fvc,
@@ -482,7 +487,19 @@ app.post('/api/analyze-blow', async (req, res) => {
     flagged,
     teamCode,
   });
-  broadcastToProjectors({ type: 'blow', blow: { pct: Math.round(estimate.percentPredicted.fev1), flagged, teamCode }, state: roomSnapshot() });
+  broadcastToProjectors({
+    type: 'blow',
+    blow: {
+      pct: Math.round(estimate.percentPredicted.fev1),
+      fvc: Number(estimate.fvc.toFixed(2)),
+      flagged,
+      teamCode,
+      improvedBest: blowResult.improvedBest,
+      isFirstBlow: blowResult.isFirstBlow,
+      fvcDelta: Number(blowResult.fvcDelta.toFixed(2)),
+    },
+    state: roomSnapshot(),
+  });
 
   // LLM calls (sequential + retry + fallback)
   let personalReport;

@@ -471,6 +471,77 @@ const css = `
   }
   .pj-foot .meta { display: flex; gap: 1.5rem; }
 
+  /* ================= Per-blow flash toast ================= */
+  .pj-flash {
+    position: fixed;
+    top: 5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    align-items: baseline;
+    gap: 1.2rem;
+    padding: 0.85rem 1.5rem;
+    background: rgba(18, 19, 26, 0.9);
+    border: 1px solid var(--brass);
+    border-radius: 999px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    animation: pj-flash-in 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+               pj-flash-out 0.5s ease-in 2.7s forwards;
+    white-space: nowrap;
+  }
+  .pj-flash[data-kind="best"] { border-color: var(--brass-bright); box-shadow: 0 0 40px var(--brass-glow), 0 20px 60px rgba(0, 0, 0, 0.45); }
+  .pj-flash[data-kind="first"] { border-color: var(--pulse); box-shadow: 0 0 40px rgba(123, 193, 150, 0.35), 0 20px 60px rgba(0, 0, 0, 0.45); }
+  .pj-flash[data-kind="retry"] { border-color: var(--hairline-strong); }
+  .pj-flash-lab {
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: var(--brass);
+  }
+  .pj-flash[data-kind="first"] .pj-flash-lab { color: var(--pulse); }
+  .pj-flash[data-kind="retry"] .pj-flash-lab { color: var(--bone-3); }
+  .pj-flash-num {
+    font-family: var(--font-display);
+    font-size: 1.7rem;
+    line-height: 1;
+    color: var(--bone-0);
+    font-variant-numeric: tabular-nums;
+  }
+  .pj-flash-unit {
+    font-family: var(--font-body);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--bone-3);
+    margin-left: 0.3rem;
+  }
+  .pj-flash-delta {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--brass-bright);
+    letter-spacing: 0.04em;
+  }
+  .pj-flash-team {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--bone-3);
+    letter-spacing: 0.12em;
+  }
+  @keyframes pj-flash-in {
+    from { opacity: 0; transform: translate(-50%, -12px); }
+    to   { opacity: 1; transform: translate(-50%, 0); }
+  }
+  @keyframes pj-flash-out {
+    from { opacity: 1; transform: translate(-50%, 0); }
+    to   { opacity: 0; transform: translate(-50%, -8px); }
+  }
+
   /* ================= Reset button ================= */
   .pj-reset {
     position: fixed;
@@ -537,6 +608,8 @@ export default function ProjectorView() {
   const [state, setState] = useState(null);
   const [currentLine, setCurrentLine] = useState(null);
   const [connected, setConnected] = useState(false);
+  const [flashBlow, setFlashBlow] = useState(null);
+  const flashTimerRef = useRef(null);
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
 
@@ -560,7 +633,14 @@ export default function ProjectorView() {
         try {
           const msg = JSON.parse(evt.data);
           if (msg.type === 'state' && msg.state) setState(msg.state);
-          else if (msg.type === 'blow' && msg.state) setState(msg.state);
+          else if (msg.type === 'blow' && msg.state) {
+            setState(msg.state);
+            if (msg.blow) {
+              setFlashBlow({ ...msg.blow, ts: Date.now() });
+              if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+              flashTimerRef.current = setTimeout(() => setFlashBlow(null), 3200);
+            }
+          }
           else if (msg.type === 'narrator' && msg.state) {
             setState(msg.state);
             if (msg.line) setCurrentLine(msg.line);
@@ -718,6 +798,32 @@ export default function ProjectorView() {
         <div className="pj-qr-corner">
           <span className="cap">Join</span>
           <QRCodeSVG value={participantUrl} size={96} level="M" marginSize={1} />
+        </div>
+      )}
+
+      {flashBlow && (
+        <div
+          className="pj-flash"
+          data-kind={flashBlow.isFirstBlow ? 'first' : flashBlow.improvedBest ? 'best' : 'retry'}
+          key={flashBlow.ts}
+        >
+          <span className="pj-flash-lab">
+            {flashBlow.isFirstBlow
+              ? 'New breath on the board'
+              : flashBlow.improvedBest
+              ? 'Personal best improved'
+              : 'Retry logged, keeping previous best'}
+          </span>
+          <span className="pj-flash-num">
+            {flashBlow.pct}
+            <span className="pj-flash-unit">% predicted</span>
+          </span>
+          {flashBlow.improvedBest && flashBlow.fvcDelta > 0 && (
+            <span className="pj-flash-delta">+{flashBlow.fvcDelta.toFixed(2)} L</span>
+          )}
+          {flashBlow.teamCode && (
+            <span className="pj-flash-team">team {flashBlow.teamCode}</span>
+          )}
         </div>
       )}
 
