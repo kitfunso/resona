@@ -416,6 +416,31 @@ function neuroReportFallback({ tremor, gait }) {
   return { headline, interpretation, actions, whenToWorry };
 }
 
+// Defensive scrub: strip internal classification tokens that should never
+// appear in user-facing narrative. Belt-and-braces against GLM ignoring the
+// "never echo these tokens" rule in the system prompt.
+function scrubInternalTokens(str) {
+  if (typeof str !== 'string') return str;
+  return str
+    .replace(/\bparkinsonian_like\b/gi, 'a low-frequency tremor signal')
+    .replace(/\bessential_like\b/gi, 'a slightly higher-frequency tremor signal')
+    .replace(/\bphysiological\b(?=[\s.,:;])/gi, 'the expected everyday tremor pattern');
+}
+
+function scrubReport(report) {
+  if (!report || typeof report !== 'object') return report;
+  if (report.headline) report.headline = scrubInternalTokens(report.headline);
+  if (report.interpretation) report.interpretation = scrubInternalTokens(report.interpretation);
+  if (report.whenToWorry) report.whenToWorry = scrubInternalTokens(report.whenToWorry);
+  if (Array.isArray(report.actions)) {
+    for (const a of report.actions) {
+      if (a?.title) a.title = scrubInternalTokens(a.title);
+      if (a?.detail) a.detail = scrubInternalTokens(a.detail);
+    }
+  }
+  return report;
+}
+
 app.post('/api/analyze-neuro', async (req, res) => {
   const { tremor, gait, demographics } = req.body || {};
   if (!tremor && !gait) {
@@ -442,6 +467,7 @@ app.post('/api/analyze-neuro', async (req, res) => {
     source = 'fallback';
   }
   report.source = source;
+  scrubReport(report);
   res.json({ ok: true, report });
 });
 

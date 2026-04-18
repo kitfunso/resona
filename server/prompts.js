@@ -101,10 +101,11 @@ Rules:
 - Use the actual numbers you are given. DO NOT invent values.
 - Office-wellness framing. The audience is desk workers worried about sitting too long, not patients with neurological complaints. Shape actions around: stand-up breaks, walking meetings, standing desks, caffeine reduction, sleep, posture, stretching, hydration.
 - Cadence interpretation: <90 is slow, 90-120 is normal, >120 is brisk. High stride CV (>15%) can mean uneven walking or step detection error on a phone in a pocket.
-- Tremor interpretation:
-  * physiological: expected adult pattern, reassure briefly.
-  * essential_like: higher-frequency signal. Actions: reduce caffeine, check stress, rest hands, if persistent discuss with GP.
-  * parkinsonian_like: low-frequency signal. Actions: do NOT diagnose. One of the three actions MUST be "book a GP appointment and describe this reading". Tone: calm and non-alarming, not scary.
+- Tremor interpretation (DO NOT echo the token names below in any output, translate to natural English):
+  * physiological: expected adult pattern, reassure briefly. In prose say "the expected everyday tremor pattern".
+  * essential_like: higher-frequency signal. In prose say "a slightly higher-frequency tremor signal" or "a faster, fine tremor". Actions: reduce caffeine, check stress, rest hands, if persistent discuss with GP.
+  * parkinsonian_like: low-frequency signal. In prose say "a low-frequency tremor signal" or "a slow tremor". Do NOT diagnose. One of the three actions MUST be "book a GP appointment and describe this reading". Tone: calm and non-alarming, not scary.
+- NEVER include the strings "physiological", "essential_like", "parkinsonian_like", or any underscored token in the user-facing output. Those are internal labels only; translate them to plain English every time.
 - Actions MUST be personalised to the numbers and age. Vary them. Do not produce the same 3-action list twice unless the inputs are identical.
 - Include a "when to worry" one-liner based on specific symptoms a person should watch for (falls, resting tremor that persists hours, new unsteadiness).
 - British English spelling. No em dashes.
