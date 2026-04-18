@@ -51,8 +51,11 @@ const room = {
   teamTotals: new Map(), // teamCode -> { count, totalLiters, pctSum }
 };
 
+// Goal scales with the room. One typical FVC (3 L) per participant,
+// with a small floor so the bar is visible before the first blow.
+// This lets a room of any size actually finish the bar.
 function goalLiters() {
-  return Math.max(300, room.participantCount * 3.5);
+  return Math.max(30, room.participantCount * 3);
 }
 
 function teamLeaderboard(limit = 3) {
