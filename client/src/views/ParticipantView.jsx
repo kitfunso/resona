@@ -567,6 +567,16 @@ export default function ParticipantView() {
     setLevel(0);
     try {
       unlockAudio();
+
+      // 3-second "get ready" pre-roll so the user has time to inhale deeply
+      // before we start sampling. Must stay async from the tap so the user
+      // gesture that unlocked audio is still in scope.
+      setStage('prepping');
+      for (let n = 3; n >= 1; n--) {
+        setCountdown(n);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
       setStage('recording');
       setCountdown(Math.round(DURATION_MS / 1000));
 
@@ -628,11 +638,12 @@ export default function ParticipantView() {
   }
 
   const recording = stage === 'recording';
-  const disabled = stage === 'recording' || stage === 'analyzing';
+  const prepping = stage === 'prepping';
+  const disabled = stage === 'prepping' || stage === 'recording' || stage === 'analyzing';
   const platform = detectPlatform();
   // Desktop users have no single mic position worth pointing at, they use a
   // laptop lid or external mic. Hide the arrow there to avoid misleading cue.
-  const showMicArrow = (stage === 'blow' || stage === 'recording') && platform !== 'desktop';
+  const showMicArrow = (stage === 'blow' || stage === 'prepping' || stage === 'recording') && platform !== 'desktop';
 
   return (
     <main className="r-stage">
@@ -645,7 +656,7 @@ export default function ParticipantView() {
         <div className="r-chrome-disclaimer">Screening tool<br />not a diagnosis</div>
       </header>
 
-      {(stage === 'blow' || stage === 'recording' || stage === 'analyzing' || stage === 'onboarding') && (
+      {(stage === 'blow' || stage === 'prepping' || stage === 'recording' || stage === 'analyzing' || stage === 'onboarding') && (
         <div className="r-hero">
           <h1 className="r-hero-title">Resona</h1>
           <p className="r-hero-tagline">
@@ -662,7 +673,7 @@ export default function ParticipantView() {
 
       {stage === 'onboarding' && <OnboardingView onSubmit={handleOnboardSubmit} />}
 
-      {(stage === 'blow' || stage === 'recording') && (
+      {(stage === 'blow' || stage === 'prepping' || stage === 'recording') && (
         <>
           <div className="r-instrument">
             <div className="r-instrument-ring" />
@@ -670,10 +681,16 @@ export default function ParticipantView() {
             <button
               className="r-blow"
               data-recording={recording}
+              data-prepping={prepping}
               onClick={handleBlow}
               disabled={disabled}
             >
-              {recording ? (
+              {prepping ? (
+                <>
+                  <span className="r-countdown">{countdown}</span>
+                  <span className="r-countdown-unit">Get ready. Deep breath.</span>
+                </>
+              ) : recording ? (
                 <>
                   <span className="r-countdown">{countdown}</span>
                   <span className="r-countdown-unit">seconds remaining</span>
