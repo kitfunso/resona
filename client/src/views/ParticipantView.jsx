@@ -559,7 +559,7 @@ export default function ParticipantView() {
     setStage('blow');
   }
 
-  async function handleBlow() {
+  async function handleArm() {
     setError(null);
     setEstimate(null);
     setAnalysis(null);
@@ -567,19 +567,19 @@ export default function ParticipantView() {
     setLevel(0);
     try {
       unlockAudio();
+      await acquireMicPermission();
+      setStage('armed');
+    } catch (permErr) {
+      setError('Microphone permission is required. Please allow mic access and try again.');
+      setStage('error');
+    }
+  }
 
-      // Trigger the mic permission prompt NOW, while the user's tap is still
-      // fresh. iOS/Android show the OS permission dialog synchronously here;
-      // once granted, the countdown below runs without a dialog popping
-      // mid-stream. If denied, surface a clear message instead of crashing.
-      try {
-        await acquireMicPermission();
-      } catch (permErr) {
-        setError('Microphone permission is required. Please allow mic access and try again.');
-        setStage('error');
-        return;
-      }
-
+  async function handleBlow() {
+    try {
+      // Permission already granted in handleArm; this tap is the user's
+      // deliberate "go" signal so recording starts on their cue, not on
+      // whatever moment the OS dialog happens to resolve.
       setStage('recording');
       setCountdown(Math.round(DURATION_MS / 1000));
 
@@ -641,11 +641,12 @@ export default function ParticipantView() {
   }
 
   const recording = stage === 'recording';
+  const armed = stage === 'armed';
   const disabled = stage === 'recording' || stage === 'analyzing';
   const platform = detectPlatform();
   // Desktop users have no single mic position worth pointing at, they use a
   // laptop lid or external mic. Hide the arrow there to avoid misleading cue.
-  const showMicArrow = (stage === 'blow' || stage === 'recording') && platform !== 'desktop';
+  const showMicArrow = (stage === 'blow' || stage === 'armed' || stage === 'recording') && platform !== 'desktop';
 
   return (
     <main className="r-stage">
@@ -658,7 +659,7 @@ export default function ParticipantView() {
         <div className="r-chrome-disclaimer">Screening tool<br />not a diagnosis</div>
       </header>
 
-      {(stage === 'blow' || stage === 'recording' || stage === 'analyzing' || stage === 'onboarding') && (
+      {(stage === 'blow' || stage === 'armed' || stage === 'recording' || stage === 'analyzing' || stage === 'onboarding') && (
         <div className="r-hero">
           <h1 className="r-hero-title">Resona</h1>
           <p className="r-hero-tagline">
@@ -675,7 +676,7 @@ export default function ParticipantView() {
 
       {stage === 'onboarding' && <OnboardingView onSubmit={handleOnboardSubmit} />}
 
-      {(stage === 'blow' || stage === 'recording') && (
+      {(stage === 'blow' || stage === 'armed' || stage === 'recording') && (
         <>
           <div className="r-instrument">
             <div className="r-instrument-ring" />
@@ -683,13 +684,19 @@ export default function ParticipantView() {
             <button
               className="r-blow"
               data-recording={recording}
-              onClick={handleBlow}
+              data-armed={armed}
+              onClick={armed ? handleBlow : handleArm}
               disabled={disabled}
             >
               {recording ? (
                 <>
                   <span className="r-countdown">{countdown}</span>
                   <span className="r-countdown-unit">seconds remaining</span>
+                </>
+              ) : armed ? (
+                <>
+                  <span className="action">Tap to blow</span>
+                  <span className="prompt">Deep breath. Start when you are ready.</span>
                 </>
               ) : (
                 <>
@@ -724,7 +731,7 @@ export default function ParticipantView() {
             </div>
           )}
 
-          {stage === 'blow' && (
+          {(stage === 'blow' || stage === 'armed') && (
             <button className="r-back" onClick={resetToOnboarding}>
               ← Edit my details
             </button>
