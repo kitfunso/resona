@@ -58,6 +58,34 @@ function scoreToFraction(score) {
   return clamp(1.0 + 0.30 * score, 0.40, 1.30);
 }
 
+// Per-metric nudges from timing features (amplitude/gain-invariant).
+// Small effects (max ±6%) so the duration signal stays dominant, but enough
+// that the three percentages diverge like real spirometry rather than locking
+// step. Physiology:
+//   FEV1 = air in first second, sensitive to how fast peak flow was reached.
+//   PEF  = peak instantaneous flow, same driver but more sensitive.
+//   FVC  = total volume, sensitive to how well the tail tapers.
+function perMetricBias(features) {
+  // Peak timing: ideal peak lands in the first ~250ms of effort.
+  // peakTimeSec <= 0.15s → z = +1  (excellent forced start)
+  // peakTimeSec >= 0.80s → z = -1  (late peak, ATS flag territory)
+  const peakTimeSec = Number.isFinite(features.peakTimeSec) ? features.peakTimeSec : 0.4;
+  const peakTimingZ = clamp((0.475 - peakTimeSec) / 0.325, -1, 1);
+
+  // Tail shape: what fraction of the active blow lived in the taper
+  // (between 20% and 5% of peak). Long taper = full lung emptying = better FVC.
+  const sec05 = Number.isFinite(features.activeSec05) ? features.activeSec05 : 4;
+  const sec20 = Number.isFinite(features.activeSec20) ? features.activeSec20 : 3;
+  const tailRatio = sec05 > 0 ? (sec05 - sec20) / sec05 : 0.3;
+  const tailZ = clamp((tailRatio - 0.3) / 0.2, -1, 1);
+
+  return {
+    fev1: 0.04 * peakTimingZ, // ±4%
+    pef:  0.06 * peakTimingZ, // ±6%, more sensitive to timing
+    fvc:  0.05 * tailZ,       // ±5% from tail shape
+  };
+}
+
 function sanityCheck({ fev1, fvc, pef }) {
   if (!Number.isFinite(fev1) || !Number.isFinite(fvc) || !Number.isFinite(pef)) {
     return { ok: false, reason: 'non-finite value' };
@@ -79,12 +107,13 @@ export function estimateSpirometry({ features, demographics }) {
   const score = effortScore(features);
   const fraction = scoreToFraction(score);
 
-  // All three parameters use the same fraction. Phone audio can't reliably
-  // separate FEV1 / FVC / PEF effort independently. The sanity check still
-  // enforces FVC >= FEV1 downstream.
-  const fev1Frac = fraction;
-  const fvcFrac  = fraction;
-  const pefFrac  = fraction;
+  // Duration-only score drives the base fraction (AGC-proof). Timing features
+  // then nudge each metric independently within ±6% so the three percentages
+  // diverge like real spirometry. Sanity check enforces FVC >= FEV1 downstream.
+  const bias = perMetricBias(features);
+  const fev1Frac = clamp(fraction * (1 + bias.fev1), 0.40, 1.35);
+  const fvcFrac  = clamp(fraction * (1 + bias.fvc),  0.40, 1.35);
+  const pefFrac  = clamp(fraction * (1 + bias.pef),  0.40, 1.35);
 
   let fev1 = predicted.fev1 * fev1Frac;
   let fvc  = predicted.fvc  * fvcFrac;
