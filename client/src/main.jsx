@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 
 // -----------------------------------------------------------------------------
-// Resona at Work, design system tokens + base typography.
+// Resona, design system tokens + base typography.
 // Editorial medical-instrument aesthetic: cream/ink/brass, display serif for
 // brand moments, refined sans for body, monospace for numeric readings.
 // -----------------------------------------------------------------------------

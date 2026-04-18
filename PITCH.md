@@ -1,4 +1,4 @@
-# Resona at Work — Pitch Outline
+# Resona · Pitch Outline
 
 Watcha Global AI Hackathon 2026 · London · Sunday 19 April
 
@@ -87,4 +87,4 @@ Target length: 2 minutes, 5 slides. Pure spoken flow, no reading off the deck.
 
 ## One-liner for the badges / lanyard
 
-> Resona at Work. Every body has a rhythm. Now every team has one too.
+> Resona. Every body has a rhythm. Now every team has one too.

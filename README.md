@@ -1,4 +1,4 @@
-# Resona at Work
+# Resona
 
 > Every body has a rhythm.
 

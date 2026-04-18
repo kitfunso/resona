@@ -1,10 +1,10 @@
-# Resona at Work scratchpad
+# Resona scratchpad
 
 Read this at the start of every new session. Update at the end of every phase.
 
 ## Product
 
-- Name: Resona at Work (codename: not-a-doctor)
+- Name: Resona (codename: not-a-doctor)
 - Tagline: "Every body has a rhythm."
 - Demo: Watcha Global AI Hackathon 2026, London, Sunday pitch
 - 2-min live pitch, 100+ audience blow into phones via QR, projector shows co-op boss-fight leaderboard
