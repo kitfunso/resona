@@ -5,7 +5,7 @@ import http from 'node:http';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MODEL, askGLMJson } from './glm-service.js';
+import { MODEL, askGLMJson, askGLMStream, isConfigured, AUTH_PATH } from './glm-service.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
   PERSONAL_REPORT_SYSTEM,
@@ -113,6 +113,7 @@ function roomSnapshot() {
     narratorLog: [...room.narratorLog],
     topTeams: teamLeaderboard(3),
     teamCount: aggregateTeams().size,
+    model: MODEL,
   };
 }
 
@@ -207,7 +208,7 @@ app.get('/health', (req, res) => {
     product: 'Resona',
     module: 'Breath',
     tagline: 'Every body has a rhythm.',
-    glm: { model: MODEL, configured: Boolean(process.env.GLM_API_KEY) },
+    glm: { model: MODEL, configured: isConfigured(), auth_path: AUTH_PATH },
     db: 'sqlite-memory',
     demoMode: DEMO_MODE,
     room: roomSnapshot(),
@@ -653,22 +654,32 @@ async function runNarratorTick() {
   if (projectorSockets.size === 0) return; // no one listening, save the tokens
 
   narratorInFlight = true;
+  const streamId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   try {
     const snapshot = roomSnapshot();
-    const resp = await askGLMJsonWithRetry(
+    broadcastToProjectors({ type: 'narrator_start', streamId });
+    const full = await askGLMStream(
       [
         { role: 'system', content: NARRATOR_SYSTEM },
         { role: 'user', content: buildNarratorUserMessage(snapshot) },
       ],
-      { tag: 'narrator', temperature: 0.9, max_tokens: 500 },
+      // Narrator is ambient hype, not revenue. `low` matched `high` quality in
+      // the eval at 2-3x speed, and stays inside the 6s tick without backing up.
+      { tag: 'narrator', reasoning: 'low' },
+      (delta) => {
+        broadcastToProjectors({ type: 'narrator_delta', streamId, delta });
+      },
     );
-    const line = resp?.line?.trim();
+    const line = full.trim().replace(/^"+|"+$/g, '');
     if (line) {
       pushNarratorLine(line);
-      broadcastToProjectors({ type: 'narrator', line, state: roomSnapshot() });
+      broadcastToProjectors({ type: 'narrator', streamId, line, state: roomSnapshot() });
+    } else {
+      broadcastToProjectors({ type: 'narrator_cancel', streamId });
     }
   } catch (err) {
     console.warn(`[narrator] tick failed: ${err.message}`);
+    broadcastToProjectors({ type: 'narrator_cancel', streamId });
   } finally {
     narratorInFlight = false;
   }
@@ -680,6 +691,6 @@ if (DEMO_MODE) seedDemoMode();
 
 server.listen(PORT, () => {
   console.log(`[Resona] server listening on :${PORT}`);
-  console.log(`[Resona] GLM model pinned: ${MODEL}`);
+  console.log(`[Resona] Codex model pinned: ${MODEL} (auth: ${isConfigured() ? 'ready' : 'MISSING — run `codex login`'})`);
   console.log(`[Resona] demo mode: ${DEMO_MODE ? 'ON (seeded)' : 'off'}`);
 });

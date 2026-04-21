@@ -10,11 +10,11 @@
     "test:glm": "node test-glm.js"
   },
   "dependencies": {
+    "@mariozechner/pi-ai": "^0.68.0",
     "better-sqlite3": "12.9.0",
     "cors": "2.8.5",
     "dotenv": "16.4.7",
     "express": "4.21.2",
-    "openai": "4.77.0",
     "ws": "8.18.0"
   }
 }

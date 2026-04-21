@@ -338,6 +338,16 @@ const css = `
   }
   .pj-nar-current::before { content: open-quote; color: var(--brass); margin-right: 0.1em; }
   .pj-nar-current::after { content: close-quote; color: var(--brass); }
+  .pj-nar-cursor {
+    display: inline-block;
+    width: 0.5ch;
+    margin-left: 0.1em;
+    color: var(--brass);
+    animation: pj-blink 1s steps(2) infinite;
+  }
+  @keyframes pj-blink {
+    50% { opacity: 0; }
+  }
   .pj-nar-past {
     margin-top: 0.75rem;
     padding-top: 0.75rem;
@@ -607,8 +617,10 @@ export default function ProjectorView() {
   useCss();
   const [state, setState] = useState(null);
   const [currentLine, setCurrentLine] = useState(null);
+  const [streamingLine, setStreamingLine] = useState(null);
   const [connected, setConnected] = useState(false);
   const [flashBlow, setFlashBlow] = useState(null);
+  const streamIdRef = useRef(null);
   const flashTimerRef = useRef(null);
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
@@ -641,9 +653,24 @@ export default function ProjectorView() {
               flashTimerRef.current = setTimeout(() => setFlashBlow(null), 3200);
             }
           }
+          else if (msg.type === 'narrator_start') {
+            streamIdRef.current = msg.streamId;
+            setStreamingLine('');
+          }
+          else if (msg.type === 'narrator_delta') {
+            if (msg.streamId && msg.streamId !== streamIdRef.current) return;
+            setStreamingLine((prev) => (prev ?? '') + (msg.delta || ''));
+          }
+          else if (msg.type === 'narrator_cancel') {
+            if (msg.streamId && msg.streamId !== streamIdRef.current) return;
+            setStreamingLine(null);
+            streamIdRef.current = null;
+          }
           else if (msg.type === 'narrator' && msg.state) {
             setState(msg.state);
             if (msg.line) setCurrentLine(msg.line);
+            setStreamingLine(null);
+            streamIdRef.current = null;
           }
         } catch {}
       };
@@ -674,12 +701,16 @@ export default function ProjectorView() {
   const overflowing = progress > 1;
 
   const logFromState = Array.isArray(state?.narratorLog) ? state.narratorLog.map((e) => e.line) : [];
-  const displayLine = currentLine || logFromState[logFromState.length - 1] || null;
+  const streamingActive = streamingLine !== null && streamingLine.length > 0;
+  const displayLine = streamingActive
+    ? streamingLine
+    : currentLine || logFromState[logFromState.length - 1] || null;
   const pastLines = logFromState
     .slice(Math.max(0, logFromState.length - 5), logFromState.length)
-    .filter((l) => l !== displayLine)
+    .filter((l) => l !== (streamingActive ? currentLine : displayLine))
     .slice(-4)
     .reverse();
+  const modelLabel = (state?.model || 'gpt-5.4').toUpperCase();
 
   return (
     <div className="pj" data-band={band}>
@@ -693,7 +724,7 @@ export default function ProjectorView() {
             <span className="dot" />
             {connected ? 'Live' : 'Reconnecting'}
           </span>
-          <span>GLM 5.1 · Z.ai</span>
+          <span>{modelLabel}</span>
         </div>
       </header>
 
@@ -772,10 +803,11 @@ export default function ProjectorView() {
           <aside className="pj-nar">
             <div className="pj-nar-hd">
               <span className="lab"><span className="dot" />Narrator</span>
-              <span className="model">GLM 5.1</span>
+              <span className="model">{modelLabel}</span>
             </div>
             <p className="pj-nar-current">
               {displayLine || (pc > 0 ? 'Warming up the narrator' : 'Waiting for the first breath')}
+              {streamingActive && <span className="pj-nar-cursor">▍</span>}
             </p>
             {pastLines.length > 0 && (
               <div className="pj-nar-past">
@@ -792,7 +824,7 @@ export default function ProjectorView() {
         <span>This is a screening tool · not a medical diagnosis</span>
         <div className="meta">
           <span>Live pitch · Watcha 2026</span>
-          <span>Powered by GLM 5.1 · Z.ai</span>
+          <span>Powered by {modelLabel}</span>
         </div>
       </footer>
 

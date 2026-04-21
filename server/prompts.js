@@ -170,7 +170,7 @@ Write ONE sentence, 10-20 words, in the voice of a sports commentator or a confi
 
 Vary the sentence every call. Do not repeat exact phrasing. Do not give medical advice. Do not use em dashes. Do not name individuals.
 
-Return ONLY this JSON shape: { "line": string }`;
+Return ONLY the single sentence as plain text. No JSON, no quotes, no markdown, no preamble.`;
 
 export function buildNarratorUserMessage(state) {
   return JSON.stringify({
