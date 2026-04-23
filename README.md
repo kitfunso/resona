@@ -2,73 +2,276 @@
 
 > Every body has a rhythm.
 
-A phone-based 2-minute team wellness check-in. Built for the Watcha Global AI Hackathon 2026, London, 18-19 April.
+Resona turns a phone into a fast team wellness check-in.
 
-Employees scan a QR code, spend two minutes on two biosignal checks, and land on the live team projector. Every valid check-in fills a shared goal bar with GLM-powered narration.
+It was built for the Watcha Global AI Hackathon 2026 in London as a live demo: people scan a QR code, complete a short sensor-based screening flow on their own phones, and see the team aggregate update on a shared projector in real time.
 
-## What it measures
+## What Resona does
 
-- **Module 01 · Breath.** Acoustic spirometry from a 6-second forced exhalation into the phone microphone. Estimates FEV1, FVC, PEF, and percent-predicted against Hankinson NHANES III reference equations. Adds two ATS 2019 effort-quality flags.
-- **Module 02 · Motion.** Tremor from 10-second stillness and gait cadence from a 10-step walk, using the phone's accelerometer (DeviceMotion API) at 60 Hz. FFT-banded into parkinsonian, essential, and physiological ranges.
-- **Module 03 · Heart.** rPPG from the front camera, roadmapped for Q3 2026.
+Resona is built around a simple idea: most workplace wellness products ask people to wear hardware they do not want, trust dashboards they never open, or hand over raw personal data they should not have to share.
 
-**This is a screening tool. Not a medical diagnosis.**
+Resona uses the sensors already on the phone.
 
-## Privacy
+Current product shape:
 
-Audio is analysed in the browser. IMU samples are analysed in the browser. Nothing but extracted numerical features ever touches the server. No raw audio, no video, no GPS.
+- **Breath module, live.** A 6-second forced exhalation into the phone microphone estimates FEV1, FVC, PEF, percent-predicted, and basic effort-quality flags.
+- **Motion module, prototype.** A phone-based neuro screen captures stillness tremor and short-walk gait signals from the accelerometer.
+- **Projector mode, live.** Team totals update over WebSockets so a room can run a shared check-in or hackathon-style demo.
+- **LLM-generated output, live.** The backend turns extracted features into a personal report, a GP-letter draft, and projector narration.
 
-## Stack
+**Important:** this is a screening demo, not a medical device and not a diagnosis tool.
 
-- Backend: Node.js, Express, WebSocket (`ws`), ephemeral SQLite (`better-sqlite3`, `:memory:`)
-- Frontend: React 18 + Vite 5
-- LLM: GLM-5.1 via Z.ai (OpenAI SDK compatible) for personal report, GP letter, and the live narrator
-- Typography: Instrument Serif, Manrope, JetBrains Mono
+## Why it exists
 
-## Run locally
+The original demo brief was a live, low-friction, privacy-aware health check for teams.
+
+The resulting product thesis is still sharp:
+
+- no wearables
+- no app install
+- no raw sensor uploads
+- fast enough to use in a room full of people
+- useful both for the individual and for a shared team moment
+
+## How it works
+
+### 1. Onboarding
+Participants enter a few demographic fields needed for percent-predicted spirometry and give consent.
+
+### 2. Breath capture
+The browser records a short forced exhalation, extracts features on-device, and estimates demo-grade spirometry outputs.
+
+### 3. Analysis
+The client sends extracted numerical features to the backend. The backend returns:
+
+- screening numbers
+- personal report
+- GP letter draft
+- coaching feedback for weak or invalid blows
+
+### 4. Live room update
+Each valid blow updates the room state. The projector view shows:
+
+- total litres achieved
+- room progress toward the shared goal
+- mean percent-predicted
+- top teams
+- rolling narrator commentary
+
+## Privacy model
+
+This is one of the strongest parts of the project.
+
+- Raw audio is processed in the browser.
+- Motion signals are processed in the browser.
+- No raw audio, no raw video, and no GPS are sent to the server.
+- The server receives extracted features and aggregate results only.
+- Room state is ephemeral.
+- SQLite runs in memory only and clears on restart.
+
+If you care about privacy-preserving screening flows, this is the bit worth stealing.
+
+## Current architecture
+
+### Frontend
+- React 18
+- Vite 5
+- Mobile-first participant flow
+- Dedicated projector route at `/projector`
+
+### Backend
+- Node.js
+- Express
+- WebSocket server via `ws`
+- Ephemeral SQLite via `better-sqlite3`
+
+### LLM layer
+Resona originally used GLM via Z.ai.
+
+The current backend has been switched to **Codex OAuth-backed generation** and reads auth from `~/.codex/auth.json`. The service is implemented in `server/glm-service.js`, which still keeps its old filename and exported surface for compatibility.
+
+That means:
+
+- you need to log in once with Codex locally
+- the existing `test:glm` script name is legacy, but it now checks the current Codex-backed path
+
+## Repository layout
+
+```text
+resona/
+├── client/        React + Vite frontend
+├── server/        Express + WebSocket backend
+├── shared/        Shared screening/reference logic
+├── deck/          Pitch deck assets
+├── mockups/       Visual exploration
+├── scripts/       Utility scripts
+├── submission/    Hackathon submission assets
+├── PITCH.md       2-minute pitch outline
+├── scratchpad.md  Live build notes and phase history
+└── README.md
+```
+
+## Local setup
+
+### Requirements
+
+- Node.js 20+
+- npm
+- A logged-in Codex environment
+- HTTPS tunnel for iPhone mic and motion permissions during real-device testing
+
+### 1. Install dependencies
 
 ```bash
-# 1. install workspace dependencies
 npm install
+```
 
-# 2. copy env and fill your Z.ai API key
+### 2. Set environment variables
+
+```bash
 cp .env.example .env
-# edit .env, set GLM_API_KEY
+```
 
-# 3. verify the GLM endpoint
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Default env:
+
+```env
+PORT=3030
+DEMO_MODE=false
+```
+
+### 3. Log into Codex
+
+```bash
+npx @openai/codex login
+```
+
+Auth is read from:
+
+```text
+~/.codex/auth.json
+```
+
+### 4. Verify the LLM path
+
+```bash
 npm run test:glm
+```
 
-# 4. run backend + frontend together
+Yes, the script name is still `test:glm`. No, it is not actually GLM anymore.
+
+### 5. Run the app
+
+```bash
 npm run dev
-# backend: http://localhost:3030 (health at /health)
-# frontend: http://localhost:5174
+```
 
-# 5. expose over HTTPS for iOS mic / motion permissions
-# (separate terminal)
+Expected local endpoints:
+
+- frontend: `http://localhost:5174`
+- backend: `http://localhost:3030`
+- health: `http://localhost:3030/health`
+- projector: `http://localhost:5174/projector`
+
+### 6. Expose over HTTPS for phone sensors
+
+```bash
 ngrok http 5174
 ```
 
-Once ngrok is up, the projector lives at `/projector` and the participant flow at `/`.
+Use the HTTPS ngrok URL on the phone. iOS Safari will not reliably grant microphone or motion access on plain HTTP.
 
-## Scripts
+## Available scripts
 
-- `npm run test:glm`, standalone GLM connectivity check
-- `npm run dev`, backend + frontend in parallel
-- `npm run dev:server`, backend only
-- `npm run dev:client`, frontend only
+At the repo root:
 
-## Layout
-
-```
-resona/
-├── server/       Express + WebSocket + SQLite (room aggregate state)
-├── client/       React + Vite (participant, results, neuro, projector)
-├── shared/       Hankinson NHANES III reference equations
-├── deck/         5-slide editorial pitch deck (static HTML)
-├── mockups/      Font and style mockups
-└── scratchpad.md Working project state
+```bash
+npm run dev
+npm run dev:server
+npm run dev:client
+npm run test:glm
 ```
 
-## Pitch day
+## Core routes and endpoints
 
-Live demo at Watcha London, 19 April 2026. Audience scans the projector QR, blows into their phones, and fills a 300 litre team goal bar with the narrator calling plays in real time.
+### Frontend routes
+- `/` participant flow
+- `/projector` live room display
+
+### Backend endpoints
+- `GET /health` health and room snapshot
+- `POST /api/analyze-blow` breath analysis flow
+- `POST /api/analyze-neuro` motion / neuro analysis flow
+- WebSocket subscription for projector clients
+
+## Demo mode
+
+Set:
+
+```env
+DEMO_MODE=true
+```
+
+This seeds synthetic room data on startup so the projector is not empty before a live demo begins.
+
+## Product status
+
+This repo is best understood as a sharp hackathon prototype with real signal-processing work inside it, not a finished medical product.
+
+What is solid:
+
+- participant flow
+- projector flow
+- ephemeral room aggregation
+- privacy model
+- live demo mechanics
+- breath-screening core
+
+What is still prototype-grade:
+
+- clinical validity
+- calibration across devices and environments
+- motion-screen interpretation
+- operational hardening
+- production auth / storage / tenancy
+
+## Limitations
+
+- Breath output is screening-grade, not clinical spirometry.
+- Percent-predicted framing depends on demographic inputs and reference-equation assumptions.
+- Sensor quality varies by phone, browser, room noise, and user technique.
+- The LLM output is useful presentation glue, not medical advice.
+- Current persistence is intentionally ephemeral.
+
+## If you are evaluating the idea
+
+The interesting part is not just phone spirometry.
+
+It is the combination of:
+
+- low-friction phone capture
+- on-device feature extraction
+- privacy-preserving server design
+- real-time room aggregation
+- instantly legible output for both the individual and the group
+
+That combination is what makes Resona feel different from a generic wellness app.
+
+## Origin
+
+Built for:
+
+- **Watcha Global AI Hackathon 2026**
+- London
+- 18 to 19 April 2026
+
+Original line:
+
+> Wellness without wearables.
+
+Still a good line, to be fair.
