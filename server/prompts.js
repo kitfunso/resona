@@ -204,9 +204,9 @@ export function buildHeartReportUserMessage({ heart, demographics }) {
     heart: heart
       ? {
           hrBpm: heart.hrBpm != null ? Math.round(heart.hrBpm) : null,
-          hrvRmssdMs: heart.hrvRmssdMs != null ? Number(heart.hrvRmssdMs.toFixed(1)) : null,
-          sdnnMs: heart.sdnnMs != null ? Number(heart.sdnnMs.toFixed(1)) : null,
-          snr: heart.snr != null ? Number(heart.snr.toFixed(2)) : null,
+          hrvRmssdMs: Number.isFinite(heart.hrvRmssdMs) ? Number(heart.hrvRmssdMs.toFixed(1)) : null,
+          sdnnMs: Number.isFinite(heart.sdnnMs) ? Number(heart.sdnnMs.toFixed(1)) : null,
+          snr: Number.isFinite(heart.snr) ? Number(heart.snr.toFixed(2)) : null,
           beatCount: heart.beatCount ?? null,
           durationSec: heart.durationSec ?? null,
           hrClassification: heart.hrClassification ?? 'unknown',

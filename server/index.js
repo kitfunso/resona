@@ -456,7 +456,7 @@ function neuroReportFallback({ tremor, gait }) {
 
 function heartReportFallback({ heart }) {
   const hr = Math.round(heart?.hrBpm ?? 0);
-  const hrvLine = heart?.hrvRmssdMs != null
+  const hrvLine = Number.isFinite(heart?.hrvRmssdMs)
     ? `Your beat-to-beat variability was ${heart.hrvRmssdMs.toFixed(0)} milliseconds. `
     : '';
   const hrClass = heart?.hrClassification ?? 'normal';
@@ -606,7 +606,7 @@ app.post('/api/analyze-heart', async (req, res) => {
     type: 'heart',
     heart: {
       hrBpm: Math.round(heart.hrBpm),
-      hrvRmssdMs: heart.hrvRmssdMs != null ? Number(heart.hrvRmssdMs.toFixed(1)) : null,
+      hrvRmssdMs: Number.isFinite(heart.hrvRmssdMs) ? Number(heart.hrvRmssdMs.toFixed(1)) : null,
       grade: heart.quality?.grade ?? 'unknown',
       teamCode,
     },
