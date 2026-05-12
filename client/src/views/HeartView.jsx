@@ -254,12 +254,123 @@ function useCss() {
   }
 }
 
+const PREP_SECONDS = 5;
+const CAPTURE_MS = 30000;
+const MAX_FACE_RETRIES = 3;
+
+async function prep(seconds, onTick) {
+  for (let s = seconds; s > 0; s--) {
+    onTick(s);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  onTick(0);
+}
+
 export default function HeartView({ onBack, demographics }) {
   useCss();
-  const [stage, setStage] = useState('intro'); // intro | prep | record | analyzing | result | coaching | error
+  const [stage, setStage] = useState('intro');
+  const [prepCount, setPrepCount] = useState(PREP_SECONDS);
+  const [progress, setProgress] = useState(0);
+  const [liveHr, setLiveHr] = useState(null);
+  const [faceRetries, setFaceRetries] = useState(0);
+  const [classified, setClassified] = useState(null);
+  const [report, setReport] = useState(null);
+  const [coachingMessage, setCoachingMessage] = useState(null);
   const [error, setError] = useState(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+
+  useEffect(() => () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  async function startStream() {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
+      audio: false,
+    });
+    streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+    }
+  }
+
+  function stopStream() {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+  }
+
+  async function runCapture(initialAttempt = 0) {
+    setError(null);
+    setClassified(null);
+    setReport(null);
+    setCoachingMessage(null);
+    setFaceRetries(initialAttempt);
+    setStage('prep');
+    setPrepCount(PREP_SECONDS);
+
+    try {
+      await acquireCameraPermission();
+      await startStream();
+      await prep(PREP_SECONDS, setPrepCount);
+
+      // Detect face on the first usable frame.
+      let det = await detectFirstFrameRoi(videoRef.current);
+      let attempt = initialAttempt;
+      while (det.kind === 'no-face' && attempt < MAX_FACE_RETRIES - 1) {
+        attempt++;
+        setFaceRetries(attempt);
+        await new Promise((r) => setTimeout(r, 700));
+        det = await detectFirstFrameRoi(videoRef.current);
+      }
+      const rois = det.kind === 'face'
+        ? det.rois
+        : buildFallbackRois(videoRef.current).rois;
+
+      setStage('record');
+      setProgress(0);
+      setLiveHr(null);
+      const cap = await captureRppg({
+        videoEl: videoRef.current,
+        durationMs: CAPTURE_MS,
+        rois,
+        onTick: ({ pct }) => setProgress(pct),
+        onLiveHr: (bpm) => setLiveHr(bpm),
+      });
+
+      stopStream();
+      setStage('analyzing');
+
+      const features = extractHeartFeatures({ samples: cap.samples, durationSec: cap.durationSec });
+      if (cap.roiSource === 'fallback' && !features.reasons.includes('fallback_roi')) {
+        features.reasons.push('fallback_roi');
+        if (features.grade === 'good') features.grade = 'fair';
+        else if (features.grade === 'fair') features.grade = 'poor';
+      }
+      const classifiedResult = classifyHeart({ features, demographics: demographics || {} });
+      setClassified(classifiedResult);
+
+      const apiResult = await analyzeHeart({ heart: classifiedResult, demographics: demographics || {} });
+      if (apiResult.ok === false) {
+        setCoachingMessage(apiResult.coaching?.message || 'Try again in better light.');
+        setStage('coaching');
+        return;
+      }
+      setReport(apiResult.report);
+      setStage('result');
+    } catch (e) {
+      console.error('[heart] capture failed', e);
+      stopStream();
+      setError(e.message || String(e));
+      setStage('error');
+    }
+  }
 
   return (
     <div className="hv-stage">
@@ -275,18 +386,115 @@ export default function HeartView({ onBack, demographics }) {
           <p className="hv-step-desc">
             Hold the phone steady, eyes on the camera, good even light. <strong>30 seconds.</strong>
           </p>
-          <button className="hv-btn" onClick={() => { /* wired up next task */ }}>
+          <button className="hv-btn" onClick={() => runCapture(0)}>
             <span>Start heart screen</span>
             <span>→</span>
           </button>
         </section>
       )}
 
+      {(stage === 'prep' || stage === 'record') && (
+        <section className="hv-step" data-state="active">
+          <div className="hv-video-wrap">
+            <video ref={videoRef} className="hv-video" playsInline muted />
+            <div className="hv-oval" />
+            {stage === 'record' && liveHr != null && (
+              <div className="hv-live-hr">~ {Math.round(liveHr)} bpm</div>
+            )}
+          </div>
+          {stage === 'prep' && (
+            <>
+              <div className="hv-count">{prepCount}</div>
+              <p className="hv-step-desc">Centre your face in the oval. {faceRetries > 0 ? `Re-detecting (${faceRetries}/${MAX_FACE_RETRIES})…` : 'Hold steady.'}</p>
+            </>
+          )}
+          {stage === 'record' && (
+            <>
+              <div className="hv-progress"><div className="hv-progress-fill" style={{ width: `${progress * 100}%` }} /></div>
+              <p className="hv-step-desc">Recording · stay still and breathe normally. {Math.max(0, Math.ceil((1 - progress) * (CAPTURE_MS / 1000)))} s left.</p>
+            </>
+          )}
+        </section>
+      )}
+
+      {stage === 'analyzing' && (
+        <div className="hv-analyzing">
+          <div className="hv-analyzing-label">Reading the pulse...</div>
+        </div>
+      )}
+
+      {stage === 'coaching' && (
+        <CoachingCard
+          message={coachingMessage}
+          onRetry={() => { setStage('intro'); }}
+          onStartOver={onBack}
+        />
+      )}
+
+      {stage === 'result' && classified && (
+        <>
+          <section className="hv-step" data-state="done">
+            <div className="hv-result-row">
+              <span className="k">Resting heart rate</span>
+              <span className="v">{Math.round(classified.hrBpm)} bpm</span>
+            </div>
+            <div className="hv-result-row">
+              <span className="k">HRV · RMSSD</span>
+              <span className="v">{classified.hrvRmssdMs != null ? `${classified.hrvRmssdMs.toFixed(0)} ms` : '-'}</span>
+            </div>
+            <div className="hv-result-row">
+              <span className="k">HRV · SDNN</span>
+              <span className="v">{classified.sdnnMs != null ? `${classified.sdnnMs.toFixed(0)} ms` : '-'}</span>
+            </div>
+            <div className="hv-result-row">
+              <span className="k">Beats detected</span>
+              <span className="v">{classified.beatCount}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 'var(--s-2)', flexWrap: 'wrap', marginTop: 'var(--s-2)' }}>
+              <span className="hv-chip" data-k={classified.hrClassification}>
+                {classified.hrClassification === 'normal' ? 'Within typical range'
+                  : classified.hrClassification === 'tachycardia' ? 'Above typical range'
+                  : classified.hrClassification === 'bradycardia' ? 'Below typical range'
+                  : 'Reading'}
+              </span>
+              {classified.quality?.reasons?.includes('fallback_roi') && (
+                <span className="hv-chip" data-k="fallback">Read wider patch</span>
+              )}
+            </div>
+          </section>
+
+          {report && (
+            <div className="hv-report">
+              <p className="headline">{report.headline}</p>
+              {report.interpretation && <p className="interp">{report.interpretation}</p>}
+              {Array.isArray(report.actions) && (
+                <ul className="hv-actions">
+                  {report.actions.map((a, i) => (
+                    <li className="hv-action" key={i}>
+                      <span className="num">{String(i + 1).padStart(2, '0')}</span>
+                      <div>
+                        <span className="t">{a.title}</span>
+                        <span className="d">{a.detail}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {report.whenToWorry && (
+                <div className="hv-worry"><strong>When to see a GP. </strong>{report.whenToWorry}</div>
+              )}
+            </div>
+          )}
+
+          <button className="hv-btn-ghost" onClick={() => runCapture(0)}>Retake the reading</button>
+        </>
+      )}
+
       {stage === 'error' && (
         <div className="hv-error">{error || 'Something went wrong with the heart screen.'}</div>
       )}
 
-      {onBack && (
+      {onBack && stage !== 'record' && stage !== 'prep' && (
         <button className="hv-btn-ghost" onClick={onBack}>Back to your reading</button>
       )}
     </div>
