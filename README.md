@@ -10,13 +10,13 @@ Employees scan a QR code, spend two minutes on two biosignal checks, and land on
 
 - **Module 01 · Breath.** Acoustic spirometry from a 6-second forced exhalation into the phone microphone. Estimates FEV1, FVC, PEF, and percent-predicted against Hankinson NHANES III reference equations. Adds two ATS 2019 effort-quality flags.
 - **Module 02 · Motion.** Tremor from 10-second stillness and gait cadence from a 10-step walk, using the phone's accelerometer (DeviceMotion API) at 60 Hz. FFT-banded into parkinsonian, essential, and physiological ranges.
-- **Module 03 · Heart.** rPPG from the front camera, roadmapped for Q3 2026.
+- **Module 03 · Heart.** rPPG from the front camera. 30-second forehead-ROI green-channel capture, detrended and bandpassed (0.7–4 Hz), FFT peak for HR plus peak-detection on the bandpassed signal for HRV (RMSSD, SDNN). Quality-graded (good/fair/poor); poor readings suppress the AI report rather than fabricating numbers.
 
 **This is a screening tool. Not a medical diagnosis.**
 
 ## Privacy
 
-Audio is analysed in the browser. IMU samples are analysed in the browser. Nothing but extracted numerical features ever touches the server. No raw audio, no video, no GPS.
+Audio is analysed in the browser. IMU samples are analysed in the browser. Video frames for rPPG are reduced to a single green-channel mean per frame inside the browser; raw pixels never leave the device. Nothing but extracted numerical features ever touches the server. No raw audio, no video, no GPS.
 
 ## Stack
 

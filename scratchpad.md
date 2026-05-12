@@ -120,6 +120,30 @@ Final signal: `activeSec05` (time envelope above 5% of own peak). Anchor 4.5s = 
 - Decision: stay with current architecture; add ATS checks as the next accuracy upgrade.
 ### Phase 4: Polish, fallbacks, demo mode, PENDING
 
+### Phase 5: Module 03 · Heart (rPPG), COMPLETE (2026-05-12) ✅
+First cut of the camera-based heart-rate module. The README/PITCH had this as a Q3 2026 roadmap item; pulled forward by the roadmap session.
+
+- [x] `client/src/video/recorder.js`, getUserMedia front camera + per-frame forehead-ROI green-channel mean. Privacy: only the per-frame scalar leaves the recorder, never raw pixels.
+- [x] `client/src/video/features.js`, resample to uniform 30 Hz grid, moving-avg detrend, Hann-windowed FFT for HR peak in 0.7–4 Hz, FFT-bandpass + peak detection for RR intervals → RMSSD/SDNN, SNR + dual-method HR cross-check for quality grading.
+- [x] `client/src/video/regression.js`, HR/HRV classification bands (bradycardia/normal/tachycardia, low/typical/high HRV), quality gate (good/fair/poor), age-aware notes.
+- [x] `server/prompts.js`, `HEART_REPORT_SYSTEM` + `buildHeartReportUserMessage`. Token-scrubbed in `scrubInternalTokens` so internal class names (tachycardia, bradycardia, low_snr, etc.) never leak to UI.
+- [x] `server/index.js`, `/api/analyze-heart` endpoint, GLM with fallback, room state extension (`heartParticipants` map + `heartSnapshot()` in roomSnapshot).
+- [x] `client/src/views/HeartView.jsx`, full UX: intro → camera permission → 5s prep → 30s capture with live mirrored preview + face oval guide + live HR readout → analyzing → results card + AI report card.
+- [x] `client/src/views/ParticipantView.jsx`, new `'heart'` stage, wired from both ResultsView (`onHeart`) and NeuroView (`onHeart`).
+- [x] `client/src/views/ProjectorView.jsx`, heart event handler, heart-flash toast (offset below blow flash), 4th stat column "Mean HR · N hearts read" when heartCount > 0.
+- [x] `client/src/api.js`, `analyzeHeart` helper with sessionId dedup.
+- [x] `/health` updated to advertise all three modules.
+- [x] `/api/admin/reset` clears heart state alongside breath state.
+
+#### Phase 5 notes / known limits
+- **No face detection.** We trust the participant to centre their face in the oval guide and use the centred ROI. MediaPipe would add 2–3 MB to the bundle and is overkill for a hackathon demo.
+- **30 Hz target sample rate.** Most phones deliver close to 30 fps from getUserMedia. We resample to 30 Hz uniform regardless to stabilise the FFT.
+- **Wide error bars.** Even with a clean capture, rPPG on a phone is typically ±5–10 bpm vs. an ECG. The HEART_REPORT prompt is explicit about this; we do NOT pretend to clinical accuracy.
+- **`quality.grade = 'poor'` short-circuits the LLM**, returning a template that asks for a retake instead of inventing an HR number. Belt-and-braces with the server-side scrub.
+- **Projector heart aggregate is mean across all sessions.** Does not contribute to the goal bar — kept as a side stat strip.
+- **iOS Safari camera unlock.** getUserMedia is fired from within the user gesture (start button onClick), no separate AudioContext-style unlock needed for video.
+- **User-side verification still TODO.** Live testing with a real front camera over ngrok HTTPS: confirm sane HR vs a Polar / pulse oximeter, check signal grading triggers correctly in low light / under movement, confirm projector flash + stats wiring.
+
 ## Known issues
 
 - iOS Safari requires a direct user tap to unlock `AudioContext`, Phase 1 must handle this explicitly.

@@ -11,11 +11,13 @@ import {
   PERSONAL_REPORT_SYSTEM,
   GP_LETTER_SYSTEM,
   NEURO_REPORT_SYSTEM,
+  HEART_REPORT_SYSTEM,
   NARRATOR_SYSTEM,
   buildClassifierUserMessage,
   buildPersonalReportUserMessage,
   buildGpLetterUserMessage,
   buildNeuroReportUserMessage,
+  buildHeartReportUserMessage,
   buildNarratorUserMessage,
 } from './prompts.js';
 
@@ -52,6 +54,11 @@ const room = {
   newestBlowPct: null,
   recentBlows: [], // chronological log of every blow incl. retries
   narratorLog: [], // last 5 narrator lines
+  // Heart (Module 03) aggregate state, kept beside participants rather than
+  // merged in so the breath leaderboard stays clean. sessionId -> {hrBpm,
+  // hrvRmssdMs, hrClass, teamCode, ts}
+  heartParticipants: new Map(),
+  newestHeartHrBpm: null,
 };
 
 // Goal scales with the room. One typical FVC (3 L) per participant,
@@ -91,6 +98,40 @@ function teamLeaderboard(limit = 3) {
   return entries.slice(0, limit);
 }
 
+function heartSnapshot() {
+  const all = [...room.heartParticipants.values()];
+  const count = all.length;
+  if (count === 0) {
+    return {
+      heartCount: 0,
+      meanHrBpm: null,
+      meanHrvRmssdMs: null,
+      tachycardiaCount: 0,
+      bradycardiaCount: 0,
+      newestHeartHrBpm: room.newestHeartHrBpm,
+    };
+  }
+  let hrSum = 0;
+  let hrvSum = 0;
+  let hrvN = 0;
+  let tachy = 0;
+  let brady = 0;
+  for (const h of all) {
+    if (h.hrBpm != null) hrSum += h.hrBpm;
+    if (h.hrvRmssdMs != null) { hrvSum += h.hrvRmssdMs; hrvN += 1; }
+    if (h.hrClass === 'tachycardia') tachy += 1;
+    if (h.hrClass === 'bradycardia') brady += 1;
+  }
+  return {
+    heartCount: count,
+    meanHrBpm: count > 0 ? hrSum / count : null,
+    meanHrvRmssdMs: hrvN > 0 ? hrvSum / hrvN : null,
+    tachycardiaCount: tachy,
+    bradycardiaCount: brady,
+    newestHeartHrBpm: room.newestHeartHrBpm,
+  };
+}
+
 function roomSnapshot() {
   let totalLiters = 0;
   let pctSum = 0;
@@ -113,6 +154,7 @@ function roomSnapshot() {
     narratorLog: [...room.narratorLog],
     topTeams: teamLeaderboard(3),
     teamCount: aggregateTeams().size,
+    heart: heartSnapshot(),
     model: MODEL,
   };
 }
@@ -151,6 +193,23 @@ function recordBlow({ sessionId, fev1, fvc, pef, percentPredicted, flagged, team
   if (room.recentBlows.length > 50) room.recentBlows.shift();
 
   return { improvedBest, isFirstBlow, fvcDelta };
+}
+
+function recordHeart({ sessionId, hrBpm, hrvRmssdMs, hrClass, hrvClass, qualityGrade, teamCode }) {
+  const id = sessionId || `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const prev = room.heartParticipants.get(id);
+  room.heartParticipants.set(id, {
+    hrBpm,
+    hrvRmssdMs,
+    hrClass,
+    hrvClass,
+    qualityGrade,
+    teamCode: teamCode ?? prev?.teamCode ?? null,
+    captureCount: (prev?.captureCount ?? 0) + 1,
+    ts: Date.now(),
+  });
+  if (hrBpm != null) room.newestHeartHrBpm = hrBpm;
+  return { isFirstCapture: !prev };
 }
 
 function pushNarratorLine(line) {
@@ -206,7 +265,7 @@ app.get('/health', (req, res) => {
   res.json({
     ok: true,
     product: 'Resona',
-    module: 'Breath',
+    modules: ['Breath', 'Neuro', 'Heart'],
     tagline: 'Every body has a rhythm.',
     glm: { model: MODEL, configured: isConfigured(), auth_path: AUTH_PATH },
     db: 'sqlite-memory',
@@ -417,6 +476,70 @@ function neuroReportFallback({ tremor, gait }) {
   return { headline, interpretation, actions, whenToWorry };
 }
 
+function heartReportFallback({ heart }) {
+  const hr = heart?.hrBpm;
+  const hrv = heart?.hrvRmssdMs;
+  const cls = heart?.hrClassification || 'unknown';
+  const grade = heart?.quality?.grade || 'fair';
+
+  if (grade === 'poor' || hr == null) {
+    return {
+      headline: 'The camera could not lock onto a clean pulse.',
+      interpretation:
+        'The reading was too noisy to give a useful heart rate this time. rPPG needs even light on your face and very little head movement. ' +
+        'Try again in brighter, more even light, brace your phone with both hands, and keep your face still in the oval.',
+      actions: [
+        { title: 'Move to brighter, even light', detail: 'Window light works well. Avoid backlight or harsh shadows on your face.' },
+        { title: 'Brace the phone, keep still', detail: 'Rest your elbows on a desk or hold the phone with both hands close to your face.' },
+        { title: 'Retake the reading', detail: 'Sit still for the full 30 seconds, breathe naturally, and try not to talk.' },
+      ],
+      whenToWorry:
+        'Persistent racing or pounding heart at rest, unexplained dizziness, chest tightness, or fainting should prompt a GP visit regardless of any phone reading.',
+    };
+  }
+
+  const hrInt = Math.round(hr);
+  const above = cls === 'tachycardia';
+  const below = cls === 'bradycardia';
+  const headline = above
+    ? `Resting heart rate came in around ${hrInt} bpm.`
+    : below
+    ? `Resting heart rate came in around ${hrInt} bpm.`
+    : `Your resting heart rate landed around ${hrInt} bpm.`;
+
+  const interpretation = above
+    ? `That is above the typical resting range of 60-100 bpm. A camera-based estimate has wide error bars, and standing in front of a stranger always nudges heart rate up. Try sitting quietly for five minutes and retesting before reading anything into a single number.`
+    : below
+    ? `That is below the typical resting range of 60-100 bpm. In healthy adults that is often a fitness signature rather than a problem. Bradycardia only matters clinically alongside symptoms like dizziness, fainting, or breathlessness.`
+    : `That sits inside the typical resting adult range of 60-100 bpm. ${hrv != null ? `Your heart rate variability came in at ${Math.round(hrv)} ms, which is roughly typical for an adult at rest.` : ''} A 30 second phone reading is a screening estimate, not a clinical pulse.`;
+
+  const actions = above
+    ? [
+        { title: 'Sit and reset for five minutes', detail: 'Slow box-breathing, four seconds in, four seconds out, retest after.' },
+        { title: 'Audit caffeine today', detail: 'Two coffees and an energy drink will push resting rate by 10-15 bpm for hours.' },
+        { title: 'Track if it persists', detail: 'If resting HR stays above 100 across several quiet readings, mention it to your GP.' },
+      ]
+    : below
+    ? [
+        { title: 'Note any symptoms', detail: 'Dizziness on standing, fainting, or breathlessness on stairs are the signals to take to a GP.' },
+        { title: 'Keep training consistent', detail: 'A low resting HR is a common sign of cardiovascular fitness in healthy adults.' },
+        { title: 'Retest after a brisk walk', detail: 'A short walk should bring HR up noticeably and back down within a minute or two.' },
+      ]
+    : [
+        { title: 'Stand and walk every hour', detail: 'Even 2 minutes of walking on the hour keeps resting HR a few beats lower over time.' },
+        { title: 'Protect your sleep', detail: 'Seven to nine hours is the single biggest lever on resting heart rate and HRV.' },
+        { title: 'Retest each Monday', detail: 'A weekly reading at the same time of day surfaces trend, not noise.' },
+      ];
+
+  const whenToWorry = above
+    ? 'See a GP if your resting heart rate sits above 100 bpm across several quiet readings, or if you get chest tightness, breathlessness, or palpitations.'
+    : below
+    ? 'See a GP if a low heart rate comes with dizziness, fainting, unexplained tiredness, or breathlessness.'
+    : 'See a GP for sudden palpitations, chest pain, breathlessness at rest, or fainting.';
+
+  return { headline, interpretation, actions, whenToWorry };
+}
+
 // Defensive scrub: strip internal classification tokens that should never
 // appear in user-facing narrative. Belt-and-braces against GLM ignoring the
 // "never echo these tokens" rule in the system prompt.
@@ -425,7 +548,12 @@ function scrubInternalTokens(str) {
   return str
     .replace(/\bparkinsonian_like\b/gi, 'a low-frequency tremor signal')
     .replace(/\bessential_like\b/gi, 'a slightly higher-frequency tremor signal')
-    .replace(/\bphysiological\b(?=[\s.,:;])/gi, 'the expected everyday tremor pattern');
+    .replace(/\bphysiological\b(?=[\s.,:;])/gi, 'the expected everyday tremor pattern')
+    .replace(/\btachycardia\b/gi, 'a higher resting heart rate')
+    .replace(/\bbradycardia\b/gi, 'a lower resting heart rate')
+    .replace(/\blow_for_young_adult\b/gi, 'lower than the typical young adult range')
+    .replace(/\bhigh_for_older_adult\b/gi, 'higher than the typical older adult range')
+    .replace(/\b(low_snr|few_frames|few_beats|hr_methods_disagree|no_peak)\b/gi, 'a noisy reading');
 }
 
 function scrubReport(report) {
@@ -472,11 +600,71 @@ app.post('/api/analyze-neuro', async (req, res) => {
   res.json({ ok: true, report });
 });
 
+app.post('/api/analyze-heart', async (req, res) => {
+  const { heart, demographics, sessionId } = req.body || {};
+  if (!heart) {
+    return res.status(400).json({ error: 'missing heart payload' });
+  }
+
+  const teamCode = typeof demographics?.teamCode === 'string' && demographics.teamCode.length > 0
+    ? demographics.teamCode.toUpperCase().slice(0, 6)
+    : null;
+
+  // Update room state + broadcast BEFORE the LLM call so the projector
+  // updates within ms.
+  const captureResult = recordHeart({
+    sessionId,
+    hrBpm: heart.hrBpm ?? null,
+    hrvRmssdMs: heart.hrvRmssdMs ?? null,
+    hrClass: heart.hrClassification ?? null,
+    hrvClass: heart.hrvClassification ?? null,
+    qualityGrade: heart.quality?.grade ?? null,
+    teamCode,
+  });
+  broadcastToProjectors({
+    type: 'heart',
+    heart: {
+      hrBpm: heart.hrBpm != null ? Math.round(heart.hrBpm) : null,
+      hrvRmssdMs: heart.hrvRmssdMs ?? null,
+      hrClass: heart.hrClassification ?? null,
+      qualityGrade: heart.quality?.grade ?? null,
+      teamCode,
+      isFirstCapture: captureResult.isFirstCapture,
+    },
+    state: roomSnapshot(),
+  });
+
+  let report;
+  let source = 'ai';
+  try {
+    report = await askGLMJsonWithRetry(
+      [
+        { role: 'system', content: HEART_REPORT_SYSTEM },
+        { role: 'user', content: buildHeartReportUserMessage({ heart, demographics }) },
+      ],
+      { tag: 'heart-report', temperature: 0.8, max_tokens: 2000 },
+    );
+    if (!report?.headline || !Array.isArray(report?.actions)) {
+      report = heartReportFallback({ heart });
+      source = 'fallback';
+    }
+  } catch (err) {
+    console.warn(`[analyze-heart] failed: ${err.message}`);
+    report = heartReportFallback({ heart });
+    source = 'fallback';
+  }
+  report.source = source;
+  scrubReport(report);
+  res.json({ ok: true, report });
+});
+
 app.post('/api/admin/reset', (req, res) => {
   room.participants.clear();
   room.newestBlowPct = null;
   room.recentBlows.length = 0;
   room.narratorLog.length = 0;
+  room.heartParticipants.clear();
+  room.newestHeartHrBpm = null;
   broadcastToProjectors({ type: 'state', state: roomSnapshot(), resetAt: Date.now() });
   console.log('[Resona] room state reset via /api/admin/reset');
   res.json({ ok: true, state: roomSnapshot() });
