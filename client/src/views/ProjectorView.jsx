@@ -215,10 +215,6 @@ const css = `
     padding-top: 1rem;
     border-top: 1px solid var(--hairline);
   }
-  .pj-stats[data-heart="true"] {
-    grid-template-columns: repeat(4, 1fr);
-  }
-  .pj-stat .v.heart { color: var(--warn); }
   .pj-stat {
     display: flex; flex-direction: column; gap: 0.4rem;
   }
@@ -624,10 +620,8 @@ export default function ProjectorView() {
   const [streamingLine, setStreamingLine] = useState(null);
   const [connected, setConnected] = useState(false);
   const [flashBlow, setFlashBlow] = useState(null);
-  const [flashHeart, setFlashHeart] = useState(null);
   const streamIdRef = useRef(null);
   const flashTimerRef = useRef(null);
-  const heartFlashTimerRef = useRef(null);
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
 
@@ -678,14 +672,6 @@ export default function ProjectorView() {
             setStreamingLine(null);
             streamIdRef.current = null;
           }
-          else if (msg.type === 'heart' && msg.state) {
-            setState(msg.state);
-            if (msg.heart) {
-              setFlashHeart({ ...msg.heart, ts: Date.now() });
-              if (heartFlashTimerRef.current) clearTimeout(heartFlashTimerRef.current);
-              heartFlashTimerRef.current = setTimeout(() => setFlashHeart(null), 3200);
-            }
-          }
         } catch {}
       };
       ws.onclose = () => {
@@ -713,8 +699,6 @@ export default function ProjectorView() {
   const band = bandFor(progress);
   const progressPct = Math.min(100, progress * 100);
   const overflowing = progress > 1;
-  const heart = state?.heart;
-  const heartCount = heart?.heartCount ?? 0;
 
   const logFromState = Array.isArray(state?.narratorLog) ? state.narratorLog.map((e) => e.line) : [];
   const streamingActive = streamingLine !== null && streamingLine.length > 0;
@@ -784,7 +768,7 @@ export default function ProjectorView() {
                 <span>{overflowing ? 'Goal smashed' : `${formatLiters(goal - total)} L to target`}</span>
               </div>
             </div>
-            <div className="pj-stats" data-heart={heartCount > 0 ? 'true' : 'false'}>
+            <div className="pj-stats">
               <div className="pj-stat">
                 <span className="k">Check-ins</span>
                 <span className="v">{pc}</span>
@@ -800,15 +784,6 @@ export default function ProjectorView() {
                 <span className="v flagged">{flagged}</span>
                 <span className="u">for GP follow-up</span>
               </div>
-              {heartCount > 0 && (
-                <div className="pj-stat">
-                  <span className="k">Mean HR</span>
-                  <span className="v heart">
-                    {heart?.meanHrBpm != null ? Math.round(heart.meanHrBpm) : '-'}
-                  </span>
-                  <span className="u">{heartCount} heart{heartCount === 1 ? '' : 's'} read</span>
-                </div>
-              )}
             </div>
             {Array.isArray(state?.topTeams) && state.topTeams.length > 0 && (
               <div className="pj-teams">
@@ -882,29 +857,6 @@ export default function ProjectorView() {
           )}
           {flashBlow.teamCode && (
             <span className="pj-flash-team">team {flashBlow.teamCode}</span>
-          )}
-        </div>
-      )}
-
-      {flashHeart && (
-        <div
-          className="pj-flash"
-          data-kind={flashHeart.hrClass === 'tachycardia' ? 'retry' : 'first'}
-          key={`heart-${flashHeart.ts}`}
-          style={{ top: '8.5rem' }}
-        >
-          <span className="pj-flash-lab">
-            {flashHeart.isFirstCapture ? 'New heart on the board' : 'Heart re-read'}
-          </span>
-          <span className="pj-flash-num">
-            {flashHeart.hrBpm ?? '—'}
-            <span className="pj-flash-unit">bpm</span>
-          </span>
-          {flashHeart.hrvRmssdMs != null && (
-            <span className="pj-flash-delta">HRV {Math.round(flashHeart.hrvRmssdMs)} ms</span>
-          )}
-          {flashHeart.teamCode && (
-            <span className="pj-flash-team">team {flashHeart.teamCode}</span>
           )}
         </div>
       )}

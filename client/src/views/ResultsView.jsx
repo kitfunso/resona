@@ -544,7 +544,7 @@ function caseId() {
   return `RSN·${ddmm}·${hhmm}`;
 }
 
-export default function ResultsView({ estimate, analysis, onRetry, onStartOver, onNeuro, onHeart }) {
+export default function ResultsView({ estimate, analysis, onRetry, onStartOver, onNeuro }) {
   useCss();
   const pp = estimate.percentPredicted.fev1;
   const level = pp < 80 ? 'weak' : pp > 115 ? 'strong' : 'normal';
@@ -699,12 +699,6 @@ export default function ResultsView({ estimate, analysis, onRetry, onStartOver, 
         {onNeuro && (
           <button className="rv-neuro-cta" onClick={onNeuro}>
             <span>Try the Neuro screen</span>
-            <span className="arrow">→</span>
-          </button>
-        )}
-        {onHeart && (
-          <button className="rv-neuro-cta" onClick={onHeart}>
-            <span>Try the Heart screen</span>
             <span className="arrow">→</span>
           </button>
         )}
