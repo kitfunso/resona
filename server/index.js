@@ -52,6 +52,9 @@ const room = {
   newestBlowPct: null,
   recentBlows: [], // chronological log of every blow incl. retries
   narratorLog: [], // last 5 narrator lines
+  // Module 03 (Heart): sessionId -> { hrBpm, hrvRmssdMs, sdnnMs, quality, lastTs }
+  heartParticipants: new Map(),
+  newestHrBpm: null,
 };
 
 // Goal scales with the room. One typical FVC (3 L) per participant,
@@ -102,6 +105,16 @@ function roomSnapshot() {
   }
   const participantCount = room.participants.size;
   const goal = goalLiters(participantCount);
+
+  let hrSum = 0;
+  let hrCountGood = 0;
+  for (const h of room.heartParticipants.values()) {
+    if (h.quality?.grade !== 'poor' && Number.isFinite(h.hrBpm)) {
+      hrSum += h.hrBpm;
+      hrCountGood += 1;
+    }
+  }
+
   return {
     participantCount,
     totalLiters,
@@ -114,6 +127,11 @@ function roomSnapshot() {
     topTeams: teamLeaderboard(3),
     teamCount: aggregateTeams().size,
     model: MODEL,
+    heart: {
+      heartCount: room.heartParticipants.size,
+      meanHrBpm: hrCountGood > 0 ? hrSum / hrCountGood : null,
+      newestHrBpm: room.newestHrBpm,
+    },
   };
 }
 
@@ -151,6 +169,23 @@ function recordBlow({ sessionId, fev1, fvc, pef, percentPredicted, flagged, team
   if (room.recentBlows.length > 50) room.recentBlows.shift();
 
   return { improvedBest, isFirstBlow, fvcDelta };
+}
+
+function recordHeart({ sessionId, hrBpm, hrvRmssdMs, sdnnMs, quality, teamCode = null }) {
+  const id = sessionId || `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const prev = room.heartParticipants.get(id);
+  const isFirstHeart = !prev;
+  room.heartParticipants.set(id, {
+    hrBpm,
+    hrvRmssdMs,
+    sdnnMs,
+    quality,
+    teamCode: teamCode ?? prev?.teamCode ?? null,
+    heartCount: (prev?.heartCount ?? 0) + 1,
+    lastTs: Date.now(),
+  });
+  room.newestHrBpm = hrBpm;
+  return { isFirstHeart };
 }
 
 function pushNarratorLine(line) {
@@ -474,7 +509,9 @@ app.post('/api/analyze-neuro', async (req, res) => {
 
 app.post('/api/admin/reset', (req, res) => {
   room.participants.clear();
+  room.heartParticipants.clear();
   room.newestBlowPct = null;
+  room.newestHrBpm = null;
   room.recentBlows.length = 0;
   room.narratorLog.length = 0;
   broadcastToProjectors({ type: 'state', state: roomSnapshot(), resetAt: Date.now() });
