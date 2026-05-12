@@ -452,6 +452,72 @@ function neuroReportFallback({ tremor, gait }) {
   return { headline, interpretation, actions, whenToWorry };
 }
 
+function heartReportFallback({ heart }) {
+  const hr = Math.round(heart?.hrBpm ?? 0);
+  const hrvLine = heart?.hrvRmssdMs != null
+    ? `Your beat-to-beat variability was ${heart.hrvRmssdMs.toFixed(0)} milliseconds. `
+    : '';
+  const hrClass = heart?.hrClassification ?? 'normal';
+  const ageNote = heart?.ageNote ?? null;
+
+  if (hrClass === 'tachycardia') {
+    return {
+      headline: `Resting heart rate came in around ${hr} bpm.`,
+      interpretation:
+        `${hr} bpm sits above the typical resting range of 60 to 100 beats per minute. ` +
+        hrvLine +
+        'A 30-second phone reading often runs slightly high because being on camera lifts the heart rate. Retry seated, after a slow breath.',
+      actions: [
+        { title: 'Take a 5-minute seated reset', detail: 'Sit, slow your breath, then retake the reading in the same light.' },
+        { title: 'Audit your caffeine timing', detail: 'Cut caffeine after lunch for 3 days and see if your resting reading settles.' },
+        { title: 'Track across quiet readings', detail: 'If resting heart rate stays above 100 across several calm checks, mention it to your GP.' },
+      ],
+      whenToWorry:
+        'See a GP if your resting heart rate stays above 100 across several quiet readings, or you notice palpitations, breathlessness at rest, or dizziness.',
+    };
+  }
+
+  if (hrClass === 'bradycardia') {
+    return {
+      headline: `Resting heart rate came in around ${hr} bpm.`,
+      interpretation:
+        `${hr} bpm sits below the typical resting range of 60 to 100 beats per minute. ` +
+        hrvLine +
+        'A lower resting heart rate is often a fitness signature in healthy adults, especially with regular cardio.',
+      actions: [
+        { title: 'Keep your training going', detail: 'Regular endurance work commonly drops resting heart rate. A low number alone is rarely a concern.' },
+        { title: 'Note any symptoms', detail: 'Watch for dizziness, fainting, or unexplained breathlessness. These are the signals that matter, not the number alone.' },
+        { title: 'Retest after gentle activity', detail: 'Take another reading 10 minutes after a short walk. Resting heart rate often climbs slightly into the typical range.' },
+      ],
+      whenToWorry:
+        'See a GP if you have unexplained dizziness, fainting, or breathlessness, especially with a heart rate that stays below 50.',
+    };
+  }
+
+  const ageLine =
+    ageNote === 'low_for_young_adult'
+      ? ' A resting reading below 55 is common in fit young adults and is rarely a concern on its own.'
+      : ageNote === 'high_for_older_adult'
+      ? ' A resting reading above 90 after age 60 deserves a calmer retest and a GP conversation if it persists.'
+      : '';
+
+  return {
+    headline: `Your resting heart rate landed around ${hr} bpm.`,
+    interpretation:
+      `${hr} bpm sits within the typical resting range of 60 to 100 beats per minute. ` +
+      hrvLine +
+      'A phone-camera reading is a screening number, not a clinical measurement.' +
+      ageLine,
+    actions: [
+      { title: 'Take a walking break every hour', detail: 'Set a 50-minute timer at the desk, walk for 5. Hourly movement keeps resting heart rate and recovery in a good place.' },
+      { title: 'Aim for seven hours of sleep', detail: 'Short sleep raises resting heart rate within a day or two. Guard the seven hours for the next week.' },
+      { title: 'Retest on a quiet Monday', detail: 'Build a baseline. Take the same screen at the same time of day to see your honest trend.' },
+    ],
+    whenToWorry:
+      'See a GP if you notice sudden palpitations, fainting, or chest discomfort, or if you feel unusually breathless climbing one flight of stairs.',
+  };
+}
+
 // Defensive scrub: strip internal classification tokens that should never
 // appear in user-facing narrative. Belt-and-braces against GLM ignoring the
 // "never echo these tokens" rule in the system prompt.
@@ -460,7 +526,12 @@ function scrubInternalTokens(str) {
   return str
     .replace(/\bparkinsonian_like\b/gi, 'a low-frequency tremor signal')
     .replace(/\bessential_like\b/gi, 'a slightly higher-frequency tremor signal')
-    .replace(/\bphysiological\b(?=[\s.,:;])/gi, 'the expected everyday tremor pattern');
+    .replace(/\bphysiological\b(?=[\s.,:;])/gi, 'the expected everyday tremor pattern')
+    .replace(/\btachycardia\b/gi, 'a higher resting heart rate')
+    .replace(/\bbradycardia\b/gi, 'a lower resting heart rate')
+    .replace(/\blow_for_young_adult\b/gi, 'lower than the typical young adult range')
+    .replace(/\bhigh_for_older_adult\b/gi, 'higher than the typical older adult range')
+    .replace(/\b(low_snr|few_frames|few_beats|hr_methods_disagree|no_peak|fallback_roi)\b/gi, 'a noisy reading');
 }
 
 function scrubReport(report) {
