@@ -11,11 +11,13 @@ import {
   PERSONAL_REPORT_SYSTEM,
   GP_LETTER_SYSTEM,
   NEURO_REPORT_SYSTEM,
+  HEART_REPORT_SYSTEM,
   NARRATOR_SYSTEM,
   buildClassifierUserMessage,
   buildPersonalReportUserMessage,
   buildGpLetterUserMessage,
   buildNeuroReportUserMessage,
+  buildHeartReportUserMessage,
   buildNarratorUserMessage,
 } from './prompts.js';
 
@@ -241,7 +243,7 @@ app.get('/health', (req, res) => {
   res.json({
     ok: true,
     product: 'Resona',
-    module: 'Breath',
+    modules: ['Breath', 'Neuro', 'Heart'],
     tagline: 'Every body has a rhythm.',
     glm: { model: MODEL, configured: isConfigured(), auth_path: AUTH_PATH },
     db: 'sqlite-memory',
@@ -571,6 +573,73 @@ app.post('/api/analyze-neuro', async (req, res) => {
   } catch (err) {
     console.warn(`[analyze-neuro] failed: ${err.message}`);
     report = neuroReportFallback({ tremor, gait });
+    source = 'fallback';
+  }
+  report.source = source;
+  scrubReport(report);
+  res.json({ ok: true, report });
+});
+
+app.post('/api/analyze-heart', async (req, res) => {
+  const { heart, demographics, sessionId } = req.body || {};
+  if (!heart || typeof heart !== 'object') {
+    return res.status(400).json({ error: 'missing heart payload' });
+  }
+  if (!Number.isFinite(heart.hrBpm)) {
+    return res.status(400).json({ error: 'heart.hrBpm must be a finite number' });
+  }
+
+  const teamCode = typeof demographics?.teamCode === 'string' && demographics.teamCode.length > 0
+    ? demographics.teamCode.toUpperCase().slice(0, 6)
+    : null;
+
+  recordHeart({
+    sessionId,
+    hrBpm: heart.hrBpm,
+    hrvRmssdMs: heart.hrvRmssdMs ?? null,
+    sdnnMs: heart.sdnnMs ?? null,
+    quality: heart.quality ?? { grade: 'unknown', reasons: [] },
+    teamCode,
+  });
+
+  broadcastToProjectors({
+    type: 'heart',
+    heart: {
+      hrBpm: Math.round(heart.hrBpm),
+      hrvRmssdMs: heart.hrvRmssdMs != null ? Number(heart.hrvRmssdMs.toFixed(1)) : null,
+      grade: heart.quality?.grade ?? 'unknown',
+      teamCode,
+    },
+    state: roomSnapshot(),
+  });
+
+  if (heart.quality?.grade === 'poor') {
+    return res.json({
+      ok: false,
+      coaching: {
+        message:
+          'We could not read a clean pulse from your camera. Move into brighter, even light, hold still with your face centred in the oval, and try again.',
+      },
+    });
+  }
+
+  let report;
+  let source = 'ai';
+  try {
+    report = await askGLMJsonWithRetry(
+      [
+        { role: 'system', content: HEART_REPORT_SYSTEM },
+        { role: 'user', content: buildHeartReportUserMessage({ heart, demographics }) },
+      ],
+      { tag: 'heart-report', temperature: 0.8, max_tokens: 2000 },
+    );
+    if (!report?.headline || !Array.isArray(report?.actions)) {
+      report = heartReportFallback({ heart });
+      source = 'fallback';
+    }
+  } catch (err) {
+    console.warn(`[analyze-heart] failed: ${err.message}`);
+    report = heartReportFallback({ heart });
     source = 'fallback';
   }
   report.source = source;
