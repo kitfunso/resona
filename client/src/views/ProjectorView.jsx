@@ -563,8 +563,10 @@ const css = `
                pj-flash-out 0.5s ease-in 2.7s forwards;
     white-space: nowrap;
   }
-  .pj-flash-heart[data-grade="fair"] { border-color: var(--brass-line); }
-  .pj-flash-heart[data-grade="poor"] { border-color: var(--hairline-strong); }
+  .pj-flash-heart[data-kind="first"] { border-color: var(--pulse); box-shadow: 0 0 40px rgba(123, 193, 150, 0.35), 0 20px 60px rgba(0, 0, 0, 0.45); }
+  .pj-flash-heart[data-kind="retry"] { border-color: var(--hairline-strong); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); }
+  .pj-flash-heart[data-kind="first"] .lab { color: var(--pulse); }
+  .pj-flash-heart[data-kind="retry"] .lab { color: var(--bone-3); }
   .pj-flash-heart .lab {
     font-family: var(--font-body);
     font-size: 0.72rem;
@@ -925,8 +927,14 @@ export default function ProjectorView() {
       )}
 
       {flashHeart && (
-        <div className="pj-flash-heart" data-grade={flashHeart.grade} key={flashHeart.ts}>
-          <span className="lab">New pulse on the board</span>
+        <div
+          className="pj-flash-heart"
+          data-kind={flashHeart.isFirstHeart ? 'first' : 'retry'}
+          key={flashHeart.ts}
+        >
+          <span className="lab">
+            {flashHeart.isFirstHeart ? 'New pulse on the board' : 'Retake logged'}
+          </span>
           <span className="num">{flashHeart.hrBpm}<span className="unit">bpm</span></span>
           {flashHeart.teamCode && (
             <span className="pj-flash-team">team {flashHeart.teamCode}</span>

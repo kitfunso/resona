@@ -593,7 +593,7 @@ app.post('/api/analyze-heart', async (req, res) => {
     ? demographics.teamCode.toUpperCase().slice(0, 6)
     : null;
 
-  recordHeart({
+  const { isFirstHeart } = recordHeart({
     sessionId,
     hrBpm: heart.hrBpm,
     hrvRmssdMs: heart.hrvRmssdMs ?? null,
@@ -608,6 +608,7 @@ app.post('/api/analyze-heart', async (req, res) => {
       hrBpm: Math.round(heart.hrBpm),
       hrvRmssdMs: Number.isFinite(heart.hrvRmssdMs) ? Number(heart.hrvRmssdMs.toFixed(1)) : null,
       grade: heart.quality?.grade ?? 'unknown',
+      isFirstHeart,
       teamCode,
     },
     state: roomSnapshot(),
