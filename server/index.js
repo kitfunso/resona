@@ -184,7 +184,7 @@ function recordHeart({ sessionId, hrBpm, hrvRmssdMs, sdnnMs, quality, teamCode =
     heartCount: (prev?.heartCount ?? 0) + 1,
     lastTs: Date.now(),
   });
-  room.newestHrBpm = hrBpm;
+  if (quality?.grade !== 'poor') room.newestHrBpm = hrBpm;
   return { isFirstHeart };
 }
 
