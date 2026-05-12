@@ -684,7 +684,7 @@ const TREMOR_LABELS = {
   parkinsonian_like: 'Low-frequency signal · see GP',
 };
 
-export default function NeuroView({ onBack, demographics }) {
+export default function NeuroView({ onBack, demographics, onHeart }) {
   useCss();
   const [stage, setStage] = useState('intro');
   const [progress, setProgress] = useState(0);
@@ -1063,6 +1063,12 @@ export default function NeuroView({ onBack, demographics }) {
         band is the expected healthy adult pattern.
       </div>
 
+      {onHeart && stage === 'gait_done' && (
+        <button className="nv-btn" onClick={onHeart}>
+          <span>Try the Heart screen</span>
+          <span className="arrow">→</span>
+        </button>
+      )}
       {onBack && (
         <button className="nv-btn-ghost" onClick={onBack}>Back to your reading</button>
       )}
