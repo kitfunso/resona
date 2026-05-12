@@ -11,21 +11,20 @@ Read this at the start of every new session. Update at the end of every phase.
 
 ## Pinned decisions
 
-- LLM model: `glm-5.1` (Z.ai flagship, reasoning on, `max_tokens: 2000`)
-- Base URL: `https://api.z.ai/api/paas/v4/`
-- Auth: standard `Authorization: Bearer <key>`
-- No GLM-specific params in use. All calls via OpenAI SDK.
+- LLM model: `gpt-5.4` via Codex (ChatGPT OAuth), default reasoning `medium`, `max_tokens: 2000`. Narrator drops reasoning to `low` to keep latency sub-6s.
+- Endpoint: `https://chatgpt.com/backend-api/codex/responses` (streaming responses API).
+- Auth: `~/.codex/auth.json`, populated by `npx @openai/codex login`. Token refresh handled by `@mariozechner/pi-ai`. No API key in env.
 - SQLite: in-memory only (`:memory:`). Ephemeral. Dies on restart.
-- No email. No raw audio upload. No video. One modality: acoustic spirometry.
-- HTTPS via ngrok for iOS mic access. No SSL provisioning in code.
+- No email. No raw audio upload. No raw video. Three modalities: acoustic spirometry (Breath), accelerometer (Motion), rPPG via per-frame RGB ROI means (Heart).
+- HTTPS via ngrok for iOS mic / motion / camera access. No SSL provisioning in code.
 
 ## Pinned dependency versions (exact, no ^ or ~)
 
 Backend (`server/`):
 - express 4.21.2
 - ws 8.18.0
-- better-sqlite3 11.7.0
-- openai 4.77.0
+- better-sqlite3 12.9.0
+- @mariozechner/pi-ai ^0.68.0 (Codex OAuth + streaming client; replaces openai 4.77.0)
 - cors 2.8.5
 - dotenv 16.4.7
 
@@ -34,6 +33,8 @@ Frontend (`client/`):
 - react-dom 18.3.1
 - vite 5.4.11
 - @vitejs/plugin-react 4.3.4
+- @mediapipe/tasks-vision 0.10.21 (Module 03 face detect; wasm served from node_modules)
+- qrcode.react 4.1.0
 
 Root:
 - npm-run-all 4.1.5
@@ -147,10 +148,21 @@ heart flash toast.
 - [ ] User-side: dim-light capture grades poor + CoachingCard renders.
 - [ ] User-side: projector 4th stat cell + heart flash toast verified.
 
+### Phase 5.1: Module 03 review-pass tightenings, COMPLETE (2026-05-12) ✅
+
+Pre-demo hardening from the post-merge review of Module 03. All four landed on `main` in PR #1 (squashed):
+
+- [x] `'unknown'` grade no longer leaks "within typical range" copy: explicit `heartReportFallback` branch + `roomSnapshot` / `recordHeart` only count `good`/`fair` toward projector mean / newest HR.
+- [x] Projector heart flash gates on `grade === 'poor'` → renders `data-kind="poor"` with "Noisy capture · retake" + "signal too low" instead of a bogus bpm.
+- [x] `AbortSignal` plumbed through `captureRppg`; `HeartView` aborts on unmount + `mountedRef` guards every `setState` after an `await`. No orphan rAF, no setState-on-unmounted.
+- [x] MediaPipe wasm served locally via inline vite plugin (dev middleware + build-time copy from `node_modules/@mediapipe/tasks-vision/wasm/`). No jsdelivr CDN dependency at demo time.
+- [x] HTTP/WS smoke test passed: `/api/analyze-heart` good / poor / unknown branches behave; mean HR gating verified (poor excluded); WS heart frames carry correct grade + teamCode.
+
 ## Known issues
 
 - iOS Safari requires a direct user tap to unlock `AudioContext`, Phase 1 must handle this explicitly.
-- GLM-5.1 is a reasoning model by default. We accept the latency since tokens are unlimited per user directive.
+- Codex `gpt-5.4` defaults to reasoning `medium`. We accept the latency for personal report / heart report / GP letter; narrator overrides to `low` to keep live commentary under 6 seconds.
+- Phase 5 user-side rehearsal (real-phone HR within ±10 bpm of a Polar / pulse-ox baseline, dim-light grading, projector heart flash) is still pending; no synthetic substitute.
 
 ## Demo-day run book
 
