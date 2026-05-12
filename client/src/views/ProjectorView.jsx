@@ -215,6 +215,7 @@ const css = `
     padding-top: 1rem;
     border-top: 1px solid var(--hairline);
   }
+  .pj-stats[data-heart="on"] { grid-template-columns: repeat(4, 1fr); }
   .pj-stat {
     display: flex; flex-direction: column; gap: 0.4rem;
   }
@@ -543,6 +544,51 @@ const css = `
     color: var(--bone-3);
     letter-spacing: 0.12em;
   }
+  .pj-flash-heart {
+    position: fixed;
+    top: 8.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    align-items: baseline;
+    gap: 1.2rem;
+    padding: 0.85rem 1.5rem;
+    background: rgba(18, 19, 26, 0.9);
+    border: 1px solid var(--warn);
+    border-radius: 999px;
+    box-shadow: 0 0 40px rgba(209, 133, 137, 0.35), 0 20px 60px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    animation: pj-flash-in 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+               pj-flash-out 0.5s ease-in 2.7s forwards;
+    white-space: nowrap;
+  }
+  .pj-flash-heart[data-grade="fair"] { border-color: var(--brass-line); }
+  .pj-flash-heart[data-grade="poor"] { border-color: var(--hairline-strong); }
+  .pj-flash-heart .lab {
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: #f0c4c8;
+  }
+  .pj-flash-heart .num {
+    font-family: var(--font-display);
+    font-size: 1.7rem;
+    line-height: 1;
+    color: var(--bone-0);
+    font-variant-numeric: tabular-nums;
+  }
+  .pj-flash-heart .unit {
+    font-family: var(--font-body);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--bone-3);
+    margin-left: 0.3rem;
+  }
   @keyframes pj-flash-in {
     from { opacity: 0; transform: translate(-50%, -12px); }
     to   { opacity: 1; transform: translate(-50%, 0); }
@@ -620,6 +666,8 @@ export default function ProjectorView() {
   const [streamingLine, setStreamingLine] = useState(null);
   const [connected, setConnected] = useState(false);
   const [flashBlow, setFlashBlow] = useState(null);
+  const [flashHeart, setFlashHeart] = useState(null);
+  const flashHeartTimerRef = useRef(null);
   const streamIdRef = useRef(null);
   const flashTimerRef = useRef(null);
   const wsRef = useRef(null);
@@ -671,6 +719,14 @@ export default function ProjectorView() {
             if (msg.line) setCurrentLine(msg.line);
             setStreamingLine(null);
             streamIdRef.current = null;
+          }
+          else if (msg.type === 'heart' && msg.state) {
+            setState(msg.state);
+            if (msg.heart) {
+              setFlashHeart({ ...msg.heart, ts: Date.now() });
+              if (flashHeartTimerRef.current) clearTimeout(flashHeartTimerRef.current);
+              flashHeartTimerRef.current = setTimeout(() => setFlashHeart(null), 3200);
+            }
           }
         } catch {}
       };
@@ -768,7 +824,7 @@ export default function ProjectorView() {
                 <span>{overflowing ? 'Goal smashed' : `${formatLiters(goal - total)} L to target`}</span>
               </div>
             </div>
-            <div className="pj-stats">
+            <div className="pj-stats" data-heart={state?.heart?.heartCount > 0 ? 'on' : 'off'}>
               <div className="pj-stat">
                 <span className="k">Check-ins</span>
                 <span className="v">{pc}</span>
@@ -784,6 +840,13 @@ export default function ProjectorView() {
                 <span className="v flagged">{flagged}</span>
                 <span className="u">for GP follow-up</span>
               </div>
+              {state?.heart?.heartCount > 0 && (
+                <div className="pj-stat">
+                  <span className="k">Mean HR</span>
+                  <span className="v">{state.heart.meanHrBpm != null ? Math.round(state.heart.meanHrBpm) : '-'}</span>
+                  <span className="u">{state.heart.heartCount} hearts read</span>
+                </div>
+              )}
             </div>
             {Array.isArray(state?.topTeams) && state.topTeams.length > 0 && (
               <div className="pj-teams">
@@ -857,6 +920,16 @@ export default function ProjectorView() {
           )}
           {flashBlow.teamCode && (
             <span className="pj-flash-team">team {flashBlow.teamCode}</span>
+          )}
+        </div>
+      )}
+
+      {flashHeart && (
+        <div className="pj-flash-heart" data-grade={flashHeart.grade} key={flashHeart.ts}>
+          <span className="lab">New pulse on the board</span>
+          <span className="num">{flashHeart.hrBpm}<span className="unit">bpm</span></span>
+          {flashHeart.teamCode && (
+            <span className="pj-flash-team">team {flashHeart.teamCode}</span>
           )}
         </div>
       )}
