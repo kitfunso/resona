@@ -242,6 +242,29 @@ const css = `
   }
   .hv-analyzing { display: flex; flex-direction: column; align-items: center; gap: var(--s-4); padding: var(--s-6) 0; }
   .hv-analyzing-label { font-family: var(--font-display); font-size: var(--t-h3); color: var(--bone-1); }
+  .hv-analyzing-bars {
+    display: flex; gap: 5px;
+    align-items: flex-end;
+    height: 48px;
+  }
+  .hv-analyzing-bars span {
+    display: block;
+    width: 4px;
+    background: var(--warn);
+    border-radius: 1px;
+    animation: hv-wave 1.1s ease-in-out infinite;
+  }
+  .hv-analyzing-bars span:nth-child(1) { animation-delay: 0s; }
+  .hv-analyzing-bars span:nth-child(2) { animation-delay: 0.08s; }
+  .hv-analyzing-bars span:nth-child(3) { animation-delay: 0.16s; }
+  .hv-analyzing-bars span:nth-child(4) { animation-delay: 0.24s; }
+  .hv-analyzing-bars span:nth-child(5) { animation-delay: 0.32s; }
+  .hv-analyzing-bars span:nth-child(6) { animation-delay: 0.4s; }
+  .hv-analyzing-bars span:nth-child(7) { animation-delay: 0.48s; }
+  @keyframes hv-wave {
+    0%, 100% { height: 8px; opacity: 0.55; }
+    50%      { height: 48px; opacity: 1; }
+  }
 `;
 
 let cssInjected = false;
@@ -419,6 +442,9 @@ export default function HeartView({ onBack, demographics }) {
 
       {stage === 'analyzing' && (
         <div className="hv-analyzing">
+          <div className="hv-analyzing-bars">
+            <span /><span /><span /><span /><span /><span /><span />
+          </div>
           <div className="hv-analyzing-label">Reading the pulse...</div>
         </div>
       )}
