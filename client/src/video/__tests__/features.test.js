@@ -37,4 +37,5 @@ test('flat signal grades reasons[] with no_peak', () => {
   const samples = { t, forehead: { r: flat, g: flat, b: flat }, cheeks: { r: flat, g: flat, b: flat } };
   const out = extractHeartFeatures({ samples, durationSec: 30 });
   assert.ok(out.reasons.includes('no_peak'), `expected no_peak in ${JSON.stringify(out.reasons)}`);
+  assert.equal(out.grade, 'poor', `expected grade 'poor', got '${out.grade}'`);
 });
