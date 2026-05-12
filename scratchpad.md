@@ -6,8 +6,21 @@ Read this at the start of every new session. Update at the end of every phase.
 
 - Name: Resona (codename: not-a-doctor)
 - Tagline: "Every body has a rhythm."
-- Demo: Watcha Global AI Hackathon 2026, London, Sunday pitch
-- 2-min live pitch, 100+ audience blow into phones via QR, projector shows co-op boss-fight leaderboard
+- Origin: built for Watcha Global AI Hackathon 2026 (London, 18-19 April). Hackathon now over.
+- Current stage: post-hackathon, pivoting toward a real product. Engineering work paused pending product-thesis decisions (see "Product direction" below).
+- Surface today: phone web app (`/`) + projector view (`/projector`). Three modalities, all in-browser feature extraction. Single global room, ephemeral state.
+
+## Product direction (open questions, 2026-05-12)
+
+Hackathon is shipped. Before the next sprint we need to lock answers to:
+
+- **Who is the buyer.** Team leads adding wellness to a Monday standup? HR ordering an annual checkup? Employee-side wellness apps? Different buyers = different product.
+- **The wedge.** Which of the three modalities is the hook that gets a first team using this on day one? (Best guess: Breath, because it's the most differentiated and the easiest to explain. Motion and Heart are more sensitive but more familiar in form factor.)
+- **Single-team vs network.** Does the projector / leaderboard story survive without the demo-day moment? Is there a repeated weekly cadence that holds?
+- **Trust model.** "Screening, not diagnosis" was fine for a hackathon. A real product needs an explicit boundary between wellness signal and medical claim, and probably a regulator-aware framing of what we will and will not say.
+- **Inference path.** Codex via the developer's ChatGPT OAuth is a hack. Real product needs either server-side LLM credentials with proper rate limiting, smaller on-device models, or rule-based reports with LLM as an optional layer.
+
+Recommended next move: a structured product-thesis session before any more engineering. /office-hours or /brainstorming are the right vehicles.
 
 ## Pinned decisions
 
@@ -164,6 +177,10 @@ Pre-demo hardening from the post-merge review of Module 03. All four landed on `
 - Codex `gpt-5.4` defaults to reasoning `medium`. We accept the latency for personal report / heart report / GP letter; narrator overrides to `low` to keep live commentary under 6 seconds.
 - Phase 5 user-side rehearsal (real-phone HR within ±10 bpm of a Polar / pulse-ox baseline, dim-light grading, projector heart flash) is still pending; no synthetic substitute.
 
-## Demo-day run book
+## Post-hackathon backlog
 
-TBD after Phase 4.
+The hackathon demo-day run book is no longer relevant. Items still parked for whenever the product direction is locked:
+
+- Phase 1 user-side: confirm weak/strong blow scoring on a real phone via ngrok HTTPS (never repeated after the calibration journey, still technically open).
+- Phase 5 user-side: real-phone HR within ±10 bpm of a Polar / pulse-ox baseline; dim-light grading; projector heart flash verified live.
+- Phase 4 polish + fallback work: never started. Mostly meaningless until the product wedge is chosen — what counts as "polish" depends on which surface we keep.
