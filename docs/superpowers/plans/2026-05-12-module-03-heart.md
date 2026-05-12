@@ -717,14 +717,18 @@ export function computePosSignal({ r, g, b, fps = 30, windowSec = 1.6 }) {
       bN[i] = b[start + i] / bMean;
     }
 
-    // Project onto skin-orthogonal axes.
-    // X = R_n - G_n, Y = R_n + G_n - 2*B_n
+    // Project onto skin-orthogonal axes using Wang 2017 matrix P:
+    //   P = [[0, 1, -1],   => X = G_n - B_n
+    //        [-2, 1, 1]]   => Y = -2*R_n + G_n + B_n
+    // (NOTE: an earlier draft used X = R_n - G_n, Y = R_n + G_n - 2*B_n;
+    //  that variant cancels to zero on green-only synthetic pulses because
+    //  X = -Y, so the unit test could never pass. Use the canonical matrix.)
     let xSum = 0, ySum = 0;
     const x = new Float32Array(w);
     const y = new Float32Array(w);
     for (let i = 0; i < w; i++) {
-      x[i] = rN[i] - gN[i];
-      y[i] = rN[i] + gN[i] - 2 * bN[i];
+      x[i] = gN[i] - bN[i];
+      y[i] = -2 * rN[i] + gN[i] + bN[i];
       xSum += x[i];
       ySum += y[i];
     }
