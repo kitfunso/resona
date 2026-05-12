@@ -1,5 +1,7 @@
 # Resona · Pitch Outline
 
+> **Historical artifact.** This was the spoken-pitch outline for the Watcha Global AI Hackathon, London, 19 April 2026. The hackathon is over and Resona is being repositioned as a real product. Kept for reference; not the current positioning. See `README.md` and `scratchpad.md` for current state.
+
 Watcha Global AI Hackathon 2026 · London · Sunday 19 April
 
 Target length: 2 minutes, 5 slides. Pure spoken flow, no reading off the deck.

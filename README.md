@@ -2,9 +2,11 @@
 
 > Every body has a rhythm.
 
-A phone-based 2-minute team wellness check-in. Built for the Watcha Global AI Hackathon 2026, London, 18-19 April.
+A phone-based 2-minute team wellness check-in. Three biosignal modalities, all processed in the browser.
 
 Employees scan a QR code, spend two minutes on three biosignal checks, and land on the live team projector. Every valid check-in fills a shared goal bar with AI-narrated commentary.
+
+Resona started as a prototype for the Watcha Global AI Hackathon (London, 18-19 April 2026). The hackathon is over; the codebase is now in transition toward a real product. See `scratchpad.md` for current state.
 
 ## What it measures
 
@@ -75,6 +77,14 @@ resona/
 └── scratchpad.md Working project state
 ```
 
-## Pitch day
+## Status
 
-Live demo at Watcha London, 19 April 2026. Audience scans the projector QR, blows into their phones, and fills a 300 litre team goal bar with the narrator calling plays in real time.
+Hackathon prototype, three modules shipped (Breath, Motion, Heart). Currently transitioning from single-room demo into a real product. The next set of decisions is on `scratchpad.md` under "Product direction".
+
+Known things that need to change before this is shippable as a product, captured for reference, not yet prioritised:
+
+- **Auth.** Codex uses the developer's `~/.codex/auth.json`. A real product needs proper LLM credentials (API key on the server, per-tenant rate limits) or a different inference path entirely.
+- **Persistence.** SQLite is `:memory:` and dies on restart. Real product needs durable team / participant / check-in storage and an account model.
+- **Multi-tenant.** One global room state. Needs teams, invites, and isolation.
+- **Deployment.** Currently ngrok + localhost. Needs an actual hosted backend (HTTPS, secrets, observability).
+- **Privacy posture.** Already strong (no raw audio / video / IMU leaves the device), but a real product needs a written policy, a DPA, and a clear medical-device disclaimer.
