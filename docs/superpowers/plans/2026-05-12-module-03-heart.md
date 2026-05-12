@@ -995,12 +995,22 @@ export function extractHeartFeatures({ samples, durationSec }) {
 
   // Frequency-domain bandpass for HRV peak detection. Zero everything outside
   // [HR_BAND_LO, HR_BAND_HI] in both positive and negative-frequency halves.
+  // NOTE: the IFFT must operate on an UNWINDOWED spectrum. Reusing the Hann-
+  // windowed `re`/`im` from the HR-spectrum pass reconstructs a Hann-tapered
+  // signal, so peaks within ~5s of either edge of the 30s capture get damped
+  // to near zero and the peak detector misses beats (beatCount drops from
+  // ~36 to ~25 for 72 bpm). Run a second unwindowed FFT for the bandpass.
+  const reU = new Float32Array(N);
+  const imU = new Float32Array(N);
+  for (let i = 0; i < n; i++) reU[i] = pulse[i];
+  fftInPlace(reU, imU);
+
   const reBP = new Float32Array(N);
   const imBP = new Float32Array(N);
   for (let k = loBin; k <= hiBin; k++) {
-    reBP[k] = re[k]; imBP[k] = im[k];
+    reBP[k] = reU[k]; imBP[k] = imU[k];
     const mirror = N - k;
-    if (mirror < N) { reBP[mirror] = re[mirror]; imBP[mirror] = im[mirror]; }
+    if (mirror < N) { reBP[mirror] = reU[mirror]; imBP[mirror] = imU[mirror]; }
   }
   ifftInPlace(reBP, imBP);
 
