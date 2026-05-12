@@ -565,8 +565,11 @@ const css = `
   }
   .pj-flash-heart[data-kind="first"] { border-color: var(--pulse); box-shadow: 0 0 40px rgba(123, 193, 150, 0.35), 0 20px 60px rgba(0, 0, 0, 0.45); }
   .pj-flash-heart[data-kind="retry"] { border-color: var(--hairline-strong); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); }
+  .pj-flash-heart[data-kind="poor"] { border-color: var(--hairline-strong); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); opacity: 0.85; }
   .pj-flash-heart[data-kind="first"] .lab { color: var(--pulse); }
   .pj-flash-heart[data-kind="retry"] .lab { color: var(--bone-3); }
+  .pj-flash-heart[data-kind="poor"] .lab { color: var(--bone-3); }
+  .pj-flash-heart[data-kind="poor"] .num { font-size: 0.95rem; color: var(--bone-2); font-family: var(--font-body); font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; }
   .pj-flash-heart .lab {
     font-family: var(--font-body);
     font-size: 0.72rem;
@@ -929,13 +932,19 @@ export default function ProjectorView() {
       {flashHeart && (
         <div
           className="pj-flash-heart"
-          data-kind={flashHeart.isFirstHeart ? 'first' : 'retry'}
+          data-kind={flashHeart.grade === 'poor' ? 'poor' : (flashHeart.isFirstHeart ? 'first' : 'retry')}
           key={flashHeart.ts}
         >
           <span className="lab">
-            {flashHeart.isFirstHeart ? 'New pulse on the board' : 'Retake logged'}
+            {flashHeart.grade === 'poor'
+              ? 'Noisy capture · retake'
+              : flashHeart.isFirstHeart ? 'New pulse on the board' : 'Retake logged'}
           </span>
-          <span className="num">{flashHeart.hrBpm}<span className="unit">bpm</span></span>
+          {flashHeart.grade === 'poor' ? (
+            <span className="num">signal too low</span>
+          ) : (
+            <span className="num">{flashHeart.hrBpm}<span className="unit">bpm</span></span>
+          )}
           {flashHeart.teamCode && (
             <span className="pj-flash-team">team {flashHeart.teamCode}</span>
           )}
