@@ -302,8 +302,15 @@ export default function HeartView({ onBack, demographics }) {
   const [error, setError] = useState(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const abortRef = useRef(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => () => {
+    mountedRef.current = false;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -330,6 +337,11 @@ export default function HeartView({ onBack, demographics }) {
   }
 
   async function runCapture(initialAttempt = 0) {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+
     setError(null);
     setClassified(null);
     setReport(null);
@@ -340,18 +352,22 @@ export default function HeartView({ onBack, demographics }) {
 
     try {
       await acquireCameraPermission();
+      if (signal.aborted) return;
       await startStream();
+      if (signal.aborted) return;
       await prep(PREP_SECONDS, setPrepCount);
+      if (signal.aborted) return;
 
       // Detect face on the first usable frame.
       let det = await detectFirstFrameRoi(videoRef.current);
       let attempt = initialAttempt;
-      while (det.kind === 'no-face' && attempt < MAX_FACE_RETRIES - 1) {
+      while (det.kind === 'no-face' && attempt < MAX_FACE_RETRIES - 1 && !signal.aborted) {
         attempt++;
-        setFaceRetries(attempt);
+        if (mountedRef.current) setFaceRetries(attempt);
         await new Promise((r) => setTimeout(r, 700));
         det = await detectFirstFrameRoi(videoRef.current);
       }
+      if (signal.aborted) return;
       const rois = det.kind === 'face'
         ? det.rois
         : buildFallbackRois(videoRef.current).rois;
@@ -363,11 +379,13 @@ export default function HeartView({ onBack, demographics }) {
         videoEl: videoRef.current,
         durationMs: CAPTURE_MS,
         rois,
-        onTick: ({ pct }) => setProgress(pct),
-        onLiveHr: (bpm) => setLiveHr(bpm),
+        onTick: ({ pct }) => { if (mountedRef.current) setProgress(pct); },
+        onLiveHr: (bpm) => { if (mountedRef.current) setLiveHr(bpm); },
+        signal,
       });
 
       stopStream();
+      if (!mountedRef.current || signal.aborted) return;
       setStage('analyzing');
 
       const features = extractHeartFeatures({ samples: cap.samples, durationSec: cap.durationSec });
@@ -377,9 +395,11 @@ export default function HeartView({ onBack, demographics }) {
         else if (features.grade === 'fair') features.grade = 'poor';
       }
       const classifiedResult = classifyHeart({ features, demographics: demographics || {} });
+      if (!mountedRef.current || signal.aborted) return;
       setClassified(classifiedResult);
 
       const apiResult = await analyzeHeart({ heart: classifiedResult, demographics: demographics || {} });
+      if (!mountedRef.current || signal.aborted) return;
       if (apiResult.ok === false) {
         setCoachingMessage(apiResult.coaching?.message || 'Try again in better light.');
         setStage('coaching');
@@ -388,8 +408,10 @@ export default function HeartView({ onBack, demographics }) {
       setReport(apiResult.report);
       setStage('result');
     } catch (e) {
+      if (e?.name === 'AbortError' || signal.aborted) return;
       console.error('[heart] capture failed', e);
       stopStream();
+      if (!mountedRef.current) return;
       setError(e.message || String(e));
       setStage('error');
     }

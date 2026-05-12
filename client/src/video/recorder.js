@@ -57,9 +57,9 @@ async function getFaceDetector() {
   if (!faceDetectorPromise) {
     faceDetectorPromise = (async () => {
       const vision = await import('@mediapipe/tasks-vision');
-      const fileset = await vision.FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm',
-      );
+      // wasm served from /mediapipe/wasm by vite-config's mediapipeWasmPlugin,
+      // so demo-day face-detect doesn't depend on jsdelivr being reachable.
+      const fileset = await vision.FilesetResolver.forVisionTasks('/mediapipe/wasm');
       return vision.FaceDetector.createFromOptions(fileset, {
         baseOptions: {
           modelAssetPath:
@@ -161,7 +161,7 @@ function drawRoiMean(ctx, video, roi, dstW, dstH) {
   return { r: r / (n * 255), g: g / (n * 255), b: b / (n * 255) };
 }
 
-export async function captureRppg({ videoEl, durationMs, rois, onTick, onLiveHr }) {
+export async function captureRppg({ videoEl, durationMs, rois, onTick, onLiveHr, signal }) {
   const { foreheadCtx, cheeksCtx } = getOffscreens();
   const startMs = performance.now();
   const samples = {
@@ -174,9 +174,26 @@ export async function captureRppg({ videoEl, durationMs, rois, onTick, onLiveHr 
   // intentionally rough; the final HR comes from features.js post-capture.
   const liveTailFrames = TARGET_FPS * 8;
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let rafId = null;
+    let abortListener = null;
+    if (signal) {
+      if (signal.aborted) {
+        const err = new Error('captureRppg aborted');
+        err.name = 'AbortError';
+        reject(err);
+        return;
+      }
+      abortListener = () => {
+        if (rafId) cancelAnimationFrame(rafId);
+        const err = new Error('captureRppg aborted');
+        err.name = 'AbortError';
+        reject(err);
+      };
+      signal.addEventListener('abort', abortListener, { once: true });
+    }
     function loop() {
+      if (signal?.aborted) return;
       const now = performance.now();
       const elapsed = now - startMs;
       const pct = Math.min(1, elapsed / durationMs);
@@ -228,6 +245,7 @@ export async function captureRppg({ videoEl, durationMs, rois, onTick, onLiveHr 
       }
 
       if (elapsed >= durationMs) {
+        if (signal && abortListener) signal.removeEventListener('abort', abortListener);
         // Convert per-channel JS arrays to Float32Array for downstream POS.
         resolve({
           samples: {
