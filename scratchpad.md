@@ -120,6 +120,33 @@ Final signal: `activeSec05` (time envelope above 5% of own peak). Anchor 4.5s = 
 - Decision: stay with current architecture; add ATS checks as the next accuracy upgrade.
 ### Phase 4: Polish, fallbacks, demo mode, PENDING
 
+### Phase 5: Module 03 (Heart), COMPLETE (2026-05-12) ✅
+
+rPPG heart-rate + HRV from 30s front-camera capture. POS (Wang 2017) on
+forehead + combined cheeks ROIs, MediaPipe Tasks Vision first-frame face
+detect with 3-retry then fallback ROI, FFT-derived HR with parabolic
+interpolation, freq-domain bandpass + peak-detect for RMSSD/SDNN. Quality
+grades good/fair/poor; poor short-circuits to CoachingCard without showing
+a number. AI personal report from HEART_REPORT_SYSTEM with template
+fallback. Projector gets 4th stat cell (Mean HR / N hearts read) plus a
+heart flash toast.
+
+- [x] `server/prompts.js`, `HEART_REPORT_SYSTEM` + `buildHeartReportUserMessage`, scrub-token extension.
+- [x] `server/index.js`, `POST /api/analyze-heart`, `recordHeart`, `room.heartParticipants`, `/health` modules list, `/api/admin/reset` clears heart.
+- [x] `client/src/video/pos.js` + unit test (synthetic 1.2 Hz pulse).
+- [x] `client/src/video/features.js` + unit tests (72 bpm round-trip, flat-signal grades poor).
+- [x] `client/src/video/regression.js` + unit tests (HR class, HRV class, ageNote).
+- [x] `client/src/video/recorder.js`, camera permission, MediaPipe face detect (lazy ESM import, pinned @mediapipe/tasks-vision@0.10.21), per-frame ROI mean sampling into a module-scoped offscreen canvas.
+- [x] `client/src/views/HeartView.jsx`, intro → prep → face-detect → record → analyzing → result | coaching | error.
+- [x] `client/src/views/ParticipantView.jsx`, ResultsView, NeuroView, ProjectorView wired up.
+- [x] `client/src/api.js`, `analyzeHeart` helper.
+- [x] README privacy line added.
+- [x] `node --test client/src/video/__tests__/*.test.js` green.
+- [x] `npm run build --workspace=client` green.
+- [ ] User-side: live capture on a real phone via ngrok, HR within ±10 bpm of a Polar / pulse-ox baseline.
+- [ ] User-side: dim-light capture grades poor + CoachingCard renders.
+- [ ] User-side: projector 4th stat cell + heart flash toast verified.
+
 ## Known issues
 
 - iOS Safari requires a direct user tap to unlock `AudioContext`, Phase 1 must handle this explicitly.

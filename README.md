@@ -16,7 +16,7 @@ Employees scan a QR code, spend two minutes on two biosignal checks, and land on
 
 ## Privacy
 
-Audio is analysed in the browser. IMU samples are analysed in the browser. Nothing but extracted numerical features ever touches the server. No raw audio, no video, no GPS.
+Audio is analysed in the browser. IMU samples are analysed in the browser. Video frames for rPPG (Module 03 Heart) are reduced to per-frame RGB ROI means inside the browser; raw pixels never leave the device. Nothing but extracted numerical features ever touches the server. No raw audio, no video, no GPS.
 
 ## Stack
 
