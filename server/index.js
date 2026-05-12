@@ -111,7 +111,8 @@ function roomSnapshot() {
   let hrSum = 0;
   let hrCountGood = 0;
   for (const h of room.heartParticipants.values()) {
-    if (h.quality?.grade !== 'poor' && Number.isFinite(h.hrBpm)) {
+    const grade = h.quality?.grade;
+    if ((grade === 'good' || grade === 'fair') && Number.isFinite(h.hrBpm)) {
       hrSum += h.hrBpm;
       hrCountGood += 1;
     }
@@ -186,7 +187,7 @@ function recordHeart({ sessionId, hrBpm, hrvRmssdMs, sdnnMs, quality, teamCode =
     heartCount: (prev?.heartCount ?? 0) + 1,
     lastTs: Date.now(),
   });
-  if (quality?.grade !== 'poor') room.newestHrBpm = hrBpm;
+  if (quality?.grade === 'good' || quality?.grade === 'fair') room.newestHrBpm = hrBpm;
   return { isFirstHeart };
 }
 
@@ -493,6 +494,23 @@ function heartReportFallback({ heart }) {
       ],
       whenToWorry:
         'See a GP if you have unexplained dizziness, fainting, or breathlessness, especially with a heart rate that stays below 50.',
+    };
+  }
+
+  if (hrClass === 'unknown') {
+    return {
+      headline: `Resting heart rate reading was unclear.`,
+      interpretation:
+        'The 30-second phone capture could not lock onto a clean pulse this time. ' +
+        hrvLine +
+        'Retry in brighter even light with your face held steady in the oval.',
+      actions: [
+        { title: 'Move into brighter light', detail: 'Daylight or a steady soft lamp beats variable indoor light for the camera.' },
+        { title: 'Hold the phone steady', detail: 'Rest your elbows on a desk and keep your face centred in the oval for the full 30 seconds.' },
+        { title: 'Retake in a quieter moment', detail: 'A calm pause, then a single clean attempt, usually beats several rushed retakes.' },
+      ],
+      whenToWorry:
+        'See a GP if you notice palpitations, fainting, or chest discomfort, even without a clear reading from a phone screen.',
     };
   }
 
