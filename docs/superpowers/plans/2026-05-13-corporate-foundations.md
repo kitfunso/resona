@@ -2045,11 +2045,307 @@ git commit -m "feat: update README + scratchpad for corporate-foundations comple
 
 ---
 
+### Task B12: Security hardening pass
+
+**Files:**
+- Modify: `server/auth.js`
+- Modify: `server/llm.js`
+- Modify: `server/index.js`
+- Modify: `server/package.json`
+- Modify: `client/src/views/ProfileSetupView.jsx`
+- Modify: `.env.example`
+- Modify: `scratchpad.md`
+
+Seven findings from the security review pass on this plan, folded in as a single task so prior tasks can build/test cleanly without rate limits or stricter validators getting in the way of the smoke-test curls. Order: P0 first (rate limits, LLM-trace gate), then P1 (timing, dates, CORS, GC), then P2 (allowlists), then the admin-token hardening.
+
+- [ ] **Step 1: Add `express-rate-limit` dep**
+
+Edit `server/package.json` dependencies, add:
+
+```json
+"express-rate-limit": "7.4.1"
+```
+
+Then:
+
+```bash
+npm install --workspace=server
+```
+
+- [ ] **Step 2: Rate-limit auth + admin endpoints (F1)**
+
+Near the top of `server/index.js`, after the express import:
+
+```js
+import rateLimit from 'express-rate-limit';
+
+const authRequestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 3,
+  keyGenerator: (req) => `${req.ip}:${String(req.body?.email ?? '').toLowerCase()}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too many requests' },
+});
+
+const authVerifyLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req) => `${req.ip}:${String(req.body?.email ?? '').toLowerCase()}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too many attempts; try again later' },
+});
+
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+```
+
+Apply to the routes added in B5 and B7 — chain the limiter before the handler (and before `requireAdmin` for admin routes):
+
+```js
+app.post('/api/auth/request', authRequestLimiter, async (req, res) => { /* B5 */ });
+app.post('/api/auth/verify',  authVerifyLimiter,  async (req, res) => { /* B5 */ });
+app.post('/api/admin/orgs',   adminLimiter, requireAdmin, async (req, res) => { /* B7 */ });
+app.post('/api/admin/users',  adminLimiter, requireAdmin, async (req, res) => { /* B7 */ });
+```
+
+Note: `express-rate-limit` reads `req.body` in the keyGenerator, so it must be registered after `app.use(express.json())`. If the server runs behind a reverse proxy in production, add `app.set('trust proxy', 1)` near the top so `req.ip` is the real client.
+
+- [ ] **Step 3: Gate `llm-trace.log` and redact PII (F2)**
+
+In `server/llm.js`, replace the `traceWrite` helper (the function defined around line 17 of the B1 implementation) with:
+
+```js
+const TRACE_ENABLED = process.env.LLM_TRACE === '1';
+const PII_KEYS = new Set(['dob', 'height_cm', 'heightCm', 'sex', 'ethnicity', 'name', 'email']);
+
+function redact(value) {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(redact);
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = PII_KEYS.has(k) ? '[redacted]' : redact(v);
+  }
+  return out;
+}
+
+function traceWrite(entry) {
+  if (!TRACE_ENABLED) return;
+  const safe = { ...entry, in: redact(entry.in) };
+  const line = JSON.stringify({ ts: new Date().toISOString(), ...safe }) + '\n';
+  try {
+    fs.appendFileSync(TRACE_PATH, line);
+  } catch (err) {
+    console.error('[llm-trace] write failed:', err.message);
+  }
+}
+```
+
+`out` (model response) is intentionally not redacted — that's the text the user already receives. The gate is the important part: in production (`LLM_TRACE` unset) nothing is written to disk.
+
+Append to `.env.example`:
+
+```
+# LLM tracing (dev only; writes prompts to llm-trace.log)
+LLM_TRACE=0
+```
+
+- [ ] **Step 4: Match timing on no-user branch of `requestCode` (F3)**
+
+In `server/auth.js`, replace the `if (rows.length === 0) return;` block (the one with the "Always behave the same way..." comment in B5) with:
+
+```js
+if (rows.length === 0) {
+  // Burn matching CPU so response time doesn't reveal whether the email is registered.
+  await bcrypt.hash(generateCode(), 10);
+  return;
+}
+```
+
+Drop the misleading comment above it — the new line is self-documenting.
+
+- [ ] **Step 5: `dob` real-date validator (F4)**
+
+In `server/index.js`, in the `/api/me` PATCH handler (B6), replace the `dob` line with:
+
+```js
+if (typeof dob === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+  const d = new Date(`${dob}T00:00:00Z`);
+  const yr = d.getUTCFullYear();
+  if (!Number.isNaN(d.getTime()) && yr >= 1900 && d.getTime() <= Date.now()) {
+    allowed.dob = dob;
+  }
+}
+```
+
+And wrap the UPDATE so a Postgres date-out-of-range returns 400 instead of 500:
+
+```js
+try {
+  await pool.query(`UPDATE users SET ${setClause} WHERE id = $${values.length}`, values);
+} catch (err) {
+  if (err.code === '22008' || err.code === '22007') {
+    return res.status(400).json({ error: 'invalid date' });
+  }
+  throw err;
+}
+```
+
+- [ ] **Step 6: CORS allowlist + clearCookie parity (F5)**
+
+In `server/index.js`, find the existing `app.use(cors(...))` call and replace with:
+
+```js
+import cors from 'cors';
+
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5174')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(new Error('CORS not allowed'));
+  },
+  credentials: true,
+}));
+```
+
+Update the logout handler (B5) to mirror the cookie options used at issue time:
+
+```js
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie(SESSION_COOKIE, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  });
+  res.json({ ok: true });
+});
+```
+
+Append to `.env.example`:
+
+```
+# CORS — comma-separated origins permitted to send credentials
+ALLOWED_ORIGINS=http://localhost:5174
+```
+
+Smoke check: log in, then inspect `Set-Cookie` on the verify response — it must include `HttpOnly`, `SameSite=Lax`, and in production also `Secure`.
+
+- [ ] **Step 7: GC expired/consumed `auth_codes` on each request (F6)**
+
+In `server/auth.js` `requestCode`, just before the INSERT into `auth_codes`:
+
+```js
+await pool.query(
+  `DELETE FROM auth_codes
+     WHERE lower(email) = $1
+       AND (expires_at < now() OR consumed_at IS NOT NULL)`,
+  [normalized],
+);
+```
+
+Cheap, indexed by `auth_codes_email_idx` (B3), keeps the table bounded by active codes only.
+
+- [ ] **Step 8: Allowlist `sex` / `ethnicity`, sanitize `name` (F7)**
+
+In `server/index.js` `/api/me` PATCH (B6), replace the three field validators with:
+
+```js
+const SEX_VALUES = new Set(['male', 'female', 'intersex', 'other', 'prefer-not-to-say']);
+const ETHNICITY_VALUES = new Set([
+  'Caucasian', 'African', 'African-American', 'Hispanic', 'East Asian',
+  'South Asian', 'Southeast Asian', 'Middle Eastern', 'Indigenous', 'Mixed', 'Other',
+]);
+
+if (typeof name === 'string') {
+  const cleaned = name.replace(/[^\p{L}\p{M} .'\-]/gu, '').slice(0, 200).trim();
+  if (cleaned.length > 0) allowed.name = cleaned;
+}
+if (typeof sex === 'string' && SEX_VALUES.has(sex)) allowed.sex = sex;
+if (typeof ethnicity === 'string' && ETHNICITY_VALUES.has(ethnicity)) allowed.ethnicity = ethnicity;
+```
+
+In `client/src/views/ProfileSetupView.jsx` (B10), render `sex` and `ethnicity` as `<select>` dropdowns whose `<option>` values match the server allowlist verbatim. Free-text inputs for these fields would silently fail server-side after this change.
+
+- [ ] **Step 9: Admin token — timing-safe compare + boot length check**
+
+In `server/index.js` where `ADMIN_TOKEN` is read (B7), replace the constant + `requireAdmin` block with:
+
+```js
+import crypto from 'node:crypto';
+
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+if (ADMIN_TOKEN && ADMIN_TOKEN.length < 32) {
+  throw new Error('ADMIN_TOKEN must be at least 32 chars');
+}
+const ADMIN_TOKEN_BUF = ADMIN_TOKEN ? Buffer.from(ADMIN_TOKEN) : null;
+
+function requireAdmin(req, res, next) {
+  if (!ADMIN_TOKEN_BUF) return res.status(503).json({ error: 'admin disabled' });
+  const provided = req.headers['x-admin-token'];
+  if (typeof provided !== 'string') return res.status(401).json({ error: 'unauthorized' });
+  const providedBuf = Buffer.from(provided);
+  if (providedBuf.length !== ADMIN_TOKEN_BUF.length) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  if (!crypto.timingSafeEqual(providedBuf, ADMIN_TOKEN_BUF)) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  next();
+}
+```
+
+Length-check before `timingSafeEqual` is required — the function throws on unequal-length buffers.
+
+- [ ] **Step 10: Verification**
+
+```bash
+node --test server/test-auth.js
+npm run dev:server
+```
+
+Smoke checks:
+
+- Hit `/api/auth/request` 4 times in 60s from the same IP+email → 4th returns 429.
+- With `LLM_TRACE` unset, call an analyze endpoint → `llm-trace.log` is not written.
+- With `LLM_TRACE=1`, call an analyze endpoint → log line shows `"sex":"[redacted]"` etc.
+- PATCH `/api/me` with `{"sex":"INJECT","ethnicity":"<script>"}` → response shows neither field updated.
+- PATCH with `{"dob":"9999-99-99"}` → 200 with no `dob` change (validator rejects). PATCH with `{"dob":"1850-01-01"}` → same (year < 1900).
+- Boot with `ADMIN_TOKEN=short` → process exits with the length-check error.
+- Hit `/api/admin/orgs` with a wrong-length token → 401 without measurable timing variation across attempts.
+
+- [ ] **Step 11: Update scratchpad**
+
+Append a bullet to the Phase B scratchpad block from B11 step 2, just under the existing list:
+
+```markdown
+- [x] Security hardening: rate limits (auth + admin), `LLM_TRACE` gate + PII redactor, timing-safe `ADMIN_TOKEN` compare with boot length check, CORS origin allowlist, `auth_codes` GC, `dob` real-date validator, `sex`/`ethnicity` server-side allowlists.
+```
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add server/auth.js server/llm.js server/index.js server/package.json package-lock.json \
+        client/src/views/ProfileSetupView.jsx .env.example scratchpad.md
+git commit -m "feat: security hardening pass — rate limits, PII gate, timing-safe admin, CORS allowlist"
+```
+
+---
+
 ## Self-review
 
 **Spec coverage:**
 - Demo teardown: ✓ projector + WebSocket + room aggregate + narrator + DEMO_MODE + GP Letter + admin/reset + teamCode all removed across tasks A1–A5.
-- Corporate foundations: ✓ OPENAI_API_KEY (B1), Postgres + migrations (B2), orgs/users/check_ins schema (B3), email abstraction (B4), magic-code auth + JWT sessions (B5), middleware + /api/me (B6), admin bootstrap (B7), auth-gated analyze endpoints with persistence (B8), client LoginView + session bootstrap (B9), profile-setup gating (B10), docs (B11).
+- Corporate foundations: ✓ OPENAI_API_KEY (B1), Postgres + migrations (B2), orgs/users/check_ins schema (B3), email abstraction (B4), magic-code auth + JWT sessions (B5), middleware + /api/me (B6), admin bootstrap (B7), auth-gated analyze endpoints with persistence (B8), client LoginView + session bootstrap (B9), profile-setup gating (B10), docs (B11), security hardening (B12).
 - Explicitly out of scope: admin/HR-facing dashboard, time-series UI, SSO, real email sender wiring (Resend/Mailgun), production deploy config, DPA text. These belong in a follow-up plan.
 
 **Placeholder scan:** No "TODO/TBD/fill in details" inside step bodies. Every code change includes the actual code. The placeholder migration in Task B2 step 5 explicitly contains a real CREATE TABLE statement (`_resona_meta`), it's a placeholder for **schema content**, not a plan-failure placeholder.
@@ -2066,3 +2362,5 @@ git commit -m "feat: update README + scratchpad for corporate-foundations comple
 1. After Task A2, the server temporarily has no persistence at all (room state gone, Postgres not in yet). The three analyze endpoints work end-to-end but don't save anything. Acceptable: this is a real intermediate state, not a broken one.
 2. Task B8 changes analyze endpoints to require auth. If you have any leftover frontend code calling them without `credentials: 'include'` (Task B9 step 1 fixes this everywhere), it will break. Run the smoke tests in B8 step 4 with cookies.
 3. The `gpt-4o` default in B1 assumes OpenAI's chat completions API. If the existing PERSONAL_REPORT or HEART_REPORT prompts relied on Codex's response shape (e.g., specific reasoning format), responses may differ. Verify the personal report still renders cleanly after B1.
+4. B12 lands after the docs commit in B11. That means the README env-var list in B11 step 1 is missing `LLM_TRACE` and `ALLOWED_ORIGINS`. Either update the README again at the end of B12, or fold those two lines into B11's `.env.example` review proactively. The plan executor should do whichever is less disruptive at the time.
+5. B12 step 2's rate limiter relies on `req.ip` being the real client. Behind a proxy (Fly, Render, Cloudflare), set `app.set('trust proxy', 1)` — left out of the task body because it depends on the deploy target, which is out of scope for this plan.
