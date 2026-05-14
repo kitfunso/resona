@@ -2003,7 +2003,7 @@ Admin-facing surface: who reads the aggregate data, what they see, how identity 
 
 - [ ] **Step 3: Final .env.example review**
 
-`.env.example` should now contain only:
+`.env.example` should now contain only the lines below. B11 runs before B12, so at the moment this step executes, `LLM_TRACE` and `ALLOWED_ORIGINS` aren't yet in the file — but they will be by the end of B12, and we list them here so this section is the single canonical post-Phase-B reference. The B12 author can re-confirm this listing matches at the end of B12 step 6.
 
 ```
 # Database
@@ -2016,11 +2016,17 @@ OPENAI_MODEL=gpt-4o
 # Auth
 SESSION_SECRET=replace-with-a-random-32-plus-char-string
 
-# Admin bootstrap (rotate on prod)
+# Admin bootstrap (rotate on prod, min 32 chars)
 ADMIN_TOKEN=replace-with-random-string
 
 # Server
 PORT=3030
+
+# LLM tracing (dev only; writes prompts to llm-trace.log)        # added by B12
+LLM_TRACE=0
+
+# CORS — comma-separated origins permitted to send credentials   # added by B12
+ALLOWED_ORIGINS=http://localhost:5174
 ```
 
 Confirm no leftover `GLM_*`, `CODEX_*`, `DEMO_MODE` keys remain.
@@ -2362,5 +2368,4 @@ git commit -m "feat: security hardening pass — rate limits, PII gate, timing-s
 1. After Task A2, the server temporarily has no persistence at all (room state gone, Postgres not in yet). The three analyze endpoints work end-to-end but don't save anything. Acceptable: this is a real intermediate state, not a broken one.
 2. Task B8 changes analyze endpoints to require auth. If you have any leftover frontend code calling them without `credentials: 'include'` (Task B9 step 1 fixes this everywhere), it will break. Run the smoke tests in B8 step 4 with cookies.
 3. The `gpt-4o` default in B1 assumes OpenAI's chat completions API. If the existing PERSONAL_REPORT or HEART_REPORT prompts relied on Codex's response shape (e.g., specific reasoning format), responses may differ. Verify the personal report still renders cleanly after B1.
-4. B12 lands after the docs commit in B11. That means the README env-var list in B11 step 1 is missing `LLM_TRACE` and `ALLOWED_ORIGINS`. Either update the README again at the end of B12, or fold those two lines into B11's `.env.example` review proactively. The plan executor should do whichever is less disruptive at the time.
-5. B12 step 2's rate limiter relies on `req.ip` being the real client. Behind a proxy (Fly, Render, Cloudflare), set `app.set('trust proxy', 1)` — left out of the task body because it depends on the deploy target, which is out of scope for this plan.
+4. B12 step 2's rate limiter relies on `req.ip` being the real client. Behind a proxy (Fly, Render, Cloudflare), set `app.set('trust proxy', 1)` — left out of the task body because it depends on the deploy target, which is out of scope for this plan.
