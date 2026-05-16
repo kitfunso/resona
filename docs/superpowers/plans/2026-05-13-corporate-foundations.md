@@ -364,7 +364,12 @@ export const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 const DEFAULT_TEMPERATURE = 0.6;
 const DEFAULT_MAX_TOKENS = 2000;
 
-const client = API_KEY ? new OpenAI({ apiKey: API_KEY }) : null;
+// timeout/maxRetries are set explicitly: the SDK default is a 10-minute
+// timeout with 2 retries, so a stalled upstream could hang an analyze
+// request ~30 min. 45s + one retry caps worst-case latency near 90s.
+const client = API_KEY
+  ? new OpenAI({ apiKey: API_KEY, timeout: 45_000, maxRetries: 1 })
+  : null;
 
 export function isConfigured() {
   return client !== null;
@@ -605,38 +610,53 @@ if (!DATABASE_URL) {
 
 export const pool = new pg.Pool({ connectionString: DATABASE_URL });
 
+// Arbitrary fixed key for the migration advisory lock. Any two processes
+// booting at once (e.g. rolling deploy) must serialise here so they don't
+// both try to apply the same migration file.
+const MIGRATION_LOCK_KEY = 4927713004;
+
 export async function migrate() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      filename TEXT PRIMARY KEY,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-  const migrationsDir = path.join(__dirname, 'migrations');
-  const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
-  for (const file of files) {
-    const { rowCount } = await pool.query(
-      'SELECT 1 FROM schema_migrations WHERE filename = $1',
-      [file],
-    );
-    if (rowCount > 0) continue;
-    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(sql);
-      await client.query(
-        'INSERT INTO schema_migrations (filename) VALUES ($1)',
+  // Hold a session-level advisory lock for the whole run on one dedicated
+  // client. A second process calling migrate() blocks on pg_advisory_lock
+  // until the first releases, then sees every migration already recorded.
+  const lockClient = await pool.connect();
+  try {
+    await lockClient.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        filename TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    const migrationsDir = path.join(__dirname, 'migrations');
+    const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
+    for (const file of files) {
+      const { rowCount } = await pool.query(
+        'SELECT 1 FROM schema_migrations WHERE filename = $1',
         [file],
       );
-      await client.query('COMMIT');
-      console.log(`[db] applied migration ${file}`);
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw new Error(`Migration ${file} failed: ${err.message}`);
-    } finally {
-      client.release();
+      if (rowCount > 0) continue;
+      const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(sql);
+        await client.query(
+          'INSERT INTO schema_migrations (filename) VALUES ($1)',
+          [file],
+        );
+        await client.query('COMMIT');
+        console.log(`[db] applied migration ${file}`);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw new Error(`Migration ${file} failed: ${err.message}`);
+      } finally {
+        client.release();
+      }
     }
+  } finally {
+    await lockClient.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]);
+    lockClient.release();
   }
 }
 ```
@@ -696,22 +716,30 @@ Expected: both tests pass.
 In `server/index.js`, add near the top of the file (after other imports):
 
 ```js
+import { fileURLToPath } from 'node:url';
 import { migrate } from './db.js';
 ```
 
 And replace the `server.listen(...)` block at the bottom with:
 
 ```js
-migrate()
-  .then(() => {
-    server.listen(PORT, () => {
-      console.log(`[Resona] backend listening on :${PORT}`);
+// Export the Express app so the HTTP integration test (Task B8.5) can
+// mount it without binding a port. Only migrate + listen when this file
+// is run directly, not when it's imported.
+export { app };
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  migrate()
+    .then(() => {
+      server.listen(PORT, () => {
+        console.log(`[Resona] backend listening on :${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('[Resona] migration failed, aborting boot:', err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('[Resona] migration failed, aborting boot:', err);
-    process.exit(1);
-  });
+}
 ```
 
 - [ ] **Step 9: Update `.env.example`**
@@ -731,10 +759,42 @@ npm run dev:server
 
 Expected log line: `[db] applied migration 001_init.sql` on first boot, then `[Resona] backend listening on :3030`. Restart: no migration log (already applied).
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 11: Add an aggregate `test` script**
+
+Every DB-bound test file (`test-db.js`, `test-schema.js`, `test-auth.js`, …)
+calls `pool.end()` in `test.after` to close the shared singleton from
+`db.js`. That is only safe because each file must run in its **own
+process** — a second file in the same process would inherit an
+already-ended pool and fail.
+
+`node --test` guarantees that isolation: it discovers each `test-*.js`
+file and runs it in a separate child process. So the whole suite is run
+through it, never by importing multiple test files into one process.
+
+In `server/package.json` `scripts`, add:
+
+```json
+"test": "node --test"
+```
+
+In the root `package.json` `scripts`, add:
+
+```json
+"test": "npm test --workspace=server"
+```
+
+Verify the full suite runs clean:
 
 ```bash
-git add server/db.js server/migrations/001_init.sql server/test-db.js server/index.js server/package.json package-lock.json .env.example
+npm test
+```
+
+Expected: every `server/test-*.js` file passes, each in its own process.
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add server/db.js server/migrations/001_init.sql server/test-db.js server/index.js server/package.json package.json package-lock.json .env.example
 git rm server/better-sqlite3-references 2>/dev/null || true  # only if any remain
 git commit -m "feat: add Postgres connection, migration runner, drop better-sqlite3"
 ```
@@ -787,7 +847,7 @@ test('users table has org_id foreign key', async () => {
   }
 });
 
-test('check_ins table has kind + payload jsonb', async () => {
+test('check_ins table has kind + payload jsonb + org_id', async () => {
   const { rows } = await pool.query(`
     SELECT column_name, data_type
     FROM information_schema.columns
@@ -796,8 +856,19 @@ test('check_ins table has kind + payload jsonb', async () => {
   const cols = Object.fromEntries(rows.map((r) => [r.column_name, r.data_type]));
   assert.equal(cols.kind, 'text');
   assert.equal(cols.payload, 'jsonb');
+  assert.equal(cols.org_id, 'uuid');
   assert.ok(cols.user_id);
   assert.ok(cols.created_at);
+});
+
+test('users.email is globally unique, case-insensitively', async () => {
+  const { rows } = await pool.query(`
+    SELECT indexdef FROM pg_indexes
+    WHERE schemaname = 'public' AND tablename = 'users' AND indexname = 'users_email_idx'
+  `);
+  assert.equal(rows.length, 1, 'users_email_idx missing');
+  assert.match(rows[0].indexdef, /UNIQUE/i);
+  assert.match(rows[0].indexdef, /lower\(email\)/i);
 });
 
 test.after(async () => {
@@ -836,21 +907,29 @@ CREATE TABLE users (
   height_cm  INTEGER,
   sex        TEXT,
   ethnicity  TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (org_id, email)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX users_email_idx ON users (lower(email));
+-- Email is the login identity, and B5's magic-code lookup is global (not
+-- org-scoped). It must therefore be globally unique, case-insensitively —
+-- a per-org UNIQUE would let two accounts share an email and make one of
+-- them permanently unreachable via login.
+CREATE UNIQUE INDEX users_email_idx ON users (lower(email));
 
 CREATE TABLE check_ins (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Denormalised from users.org_id so org-scoped dashboard reads don't
+  -- need a join. Written from the DB user row at insert time (see B8),
+  -- never from the JWT, which can carry a stale org after a user moves.
+  org_id     UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
   kind       TEXT NOT NULL CHECK (kind IN ('breath', 'motion', 'heart')),
   payload    JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX check_ins_user_created_idx ON check_ins (user_id, created_at DESC);
+CREATE INDEX check_ins_org_created_idx ON check_ins (org_id, created_at DESC);
 CREATE INDEX check_ins_kind_idx ON check_ins (kind, created_at DESC);
 
 CREATE TABLE auth_codes (
@@ -871,7 +950,7 @@ CREATE INDEX auth_codes_email_idx ON auth_codes (lower(email), created_at DESC);
 node --test server/test-schema.js
 ```
 
-Expected: all four tests pass. The migrate runner will pick up `002_schema.sql` automatically.
+Expected: all five tests pass. The migrate runner will pick up `002_schema.sql` automatically.
 
 - [ ] **Step 5: Commit**
 
@@ -1044,7 +1123,7 @@ test.before(async () => {
   const orgId = orgs[0].id;
   await pool.query(
     `INSERT INTO users (org_id, email) VALUES ($1, $2)
-     ON CONFLICT (org_id, email) DO NOTHING`,
+     ON CONFLICT (lower(email)) DO NOTHING`,
     [orgId, TEST_EMAIL],
   );
 });
@@ -1559,28 +1638,32 @@ At the end of each handler, just before `res.json(...)`, insert:
 ```js
 // /api/analyze-blow
 await pool.query(
-  `INSERT INTO check_ins (user_id, kind, payload) VALUES ($1, 'breath', $2::jsonb)`,
-  [req.auth.userId, JSON.stringify({ features: req.body.features, estimate, atsFlags: flags, personalReport })],
+  `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'breath', $3::jsonb)`,
+  [req.auth.userId, user.org_id, JSON.stringify({ features: req.body.features, estimate, atsFlags: flags, personalReport })],
 );
 ```
 
 ```js
 // /api/analyze-neuro
 await pool.query(
-  `INSERT INTO check_ins (user_id, kind, payload) VALUES ($1, 'motion', $2::jsonb)`,
-  [req.auth.userId, JSON.stringify({ tremor: req.body.tremor, gait: req.body.gait, neuroReport })],
+  `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'motion', $3::jsonb)`,
+  [req.auth.userId, user.org_id, JSON.stringify({ tremor: req.body.tremor, gait: req.body.gait, neuroReport })],
 );
 ```
 
 ```js
 // /api/analyze-heart
 await pool.query(
-  `INSERT INTO check_ins (user_id, kind, payload) VALUES ($1, 'heart', $2::jsonb)`,
-  [req.auth.userId, JSON.stringify({ heart: req.body.heart, heartReport })],
+  `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'heart', $3::jsonb)`,
+  [req.auth.userId, user.org_id, JSON.stringify({ heart: req.body.heart, heartReport })],
 );
 ```
 
-(Variable names in each handler may differ — adapt to whatever locals the function builds before responding.)
+`org_id` is sourced from `user.org_id` — the row loaded by `loadCurrentUser` in
+Step 2 — never from `req.auth.orgId`. The JWT's `orgId` claim is fixed at
+login and goes stale if the user is moved to another org; the DB row is
+always current. (Variable names in each handler may differ — adapt to
+whatever locals the function builds before responding.)
 
 - [ ] **Step 4: Smoke-test the whole flow**
 
@@ -1614,6 +1697,164 @@ Expected: one row with `kind='breath'`.
 ```bash
 git add server/index.js
 git commit -m "feat: require auth on analyze endpoints, persist check-ins"
+```
+
+---
+
+### Task B8.5: HTTP integration test for the auth + analyze surface
+
+**Files:**
+- Create: `server/test-http.js`
+
+Up to here the HTTP layer — `requireAuth` gating, `/api/me` validators,
+the magic-code request/verify round-trip — is only exercised by hand with
+`curl`. That leaves auth gating, input validation, and persistence with no
+regression net. This task adds one integration test that boots the real
+Express app in-process (made importable by the `export { app }` change in
+Task B2 Step 8) and drives it over HTTP.
+
+It deliberately stops at the validator boundary and does **not** trigger a
+real LLM call — the analyze cases assert the 401 (no session) and 400
+(incomplete profile) responses, both of which return before any
+`askGLMJson`. The LLM round-trip itself stays covered by the B1
+connectivity test and the B8 `curl` smoke test.
+
+- [ ] **Step 1: Write the integration test**
+
+`server/test-http.js`:
+
+```js
+import 'dotenv/config';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { app } from './index.js';
+import { pool, migrate } from './db.js';
+import { resetEmailLog } from './email.js';
+
+let server;
+let baseUrl;
+
+test.before(async () => {
+  await migrate();
+  server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, resolve));
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
+});
+
+test.after(async () => {
+  await new Promise((resolve) => server.close(resolve));
+  await pool.end();
+});
+
+function req(method, urlPath, { body, cookie } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (cookie) headers.Cookie = cookie;
+  return fetch(`${baseUrl}${urlPath}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+function sessionCookie(res) {
+  const hit = res.headers.getSetCookie().find((c) => c.startsWith('resona_session='));
+  assert.ok(hit, 'no resona_session cookie set');
+  return hit.split(';')[0];
+}
+
+async function provisionUser(email) {
+  const { rows } = await pool.query(
+    "INSERT INTO orgs (slug, name) VALUES ('http-test', 'HTTP Test') ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name RETURNING id",
+  );
+  await pool.query(
+    `INSERT INTO users (org_id, email) VALUES ($1, $2) ON CONFLICT (lower(email)) DO NOTHING`,
+    [rows[0].id, email],
+  );
+}
+
+async function login(email) {
+  resetEmailLog();
+  const r1 = await req('POST', '/api/auth/request', { body: { email } });
+  assert.equal(r1.status, 200);
+  const log = JSON.parse(fs.readFileSync(path.join('dev-emails', 'log.json'), 'utf8'));
+  const code = log.at(-1).text.match(/\b(\d{6})\b/)[1];
+  const r2 = await req('POST', '/api/auth/verify', { body: { email, code } });
+  assert.equal(r2.status, 200);
+  return sessionCookie(r2);
+}
+
+test('GET /api/me without a cookie returns 401', async () => {
+  const res = await req('GET', '/api/me');
+  assert.equal(res.status, 401);
+});
+
+test('POST /api/analyze-blow without a cookie returns 401 (no LLM call)', async () => {
+  const res = await req('POST', '/api/analyze-blow', { body: { features: {} } });
+  assert.equal(res.status, 401);
+});
+
+test('auth/request for an unknown email returns 200 and sends nothing', async () => {
+  resetEmailLog();
+  const res = await req('POST', '/api/auth/request', { body: { email: 'nobody@nowhere.test' } });
+  assert.equal(res.status, 200);
+  const log = JSON.parse(fs.readFileSync(path.join('dev-emails', 'log.json'), 'utf8'));
+  assert.equal(log.length, 0, 'no email should be sent for an unknown address');
+});
+
+test('login flow issues a session that authorises /api/me', async () => {
+  const email = 'http-flow@example.com';
+  await provisionUser(email);
+  const cookie = await login(email);
+  const me = await req('GET', '/api/me', { cookie });
+  assert.equal(me.status, 200);
+  const { user } = await me.json();
+  assert.equal(user.email, email);
+});
+
+test('PATCH /api/me applies valid fields and ignores invalid ones', async () => {
+  const email = 'http-patch@example.com';
+  await provisionUser(email);
+  const cookie = await login(email);
+  const res = await req('PATCH', '/api/me', {
+    cookie,
+    body: { name: 'Valid Name', heightCm: 5000, sex: 'female' },
+  });
+  assert.equal(res.status, 200);
+  const { user } = await res.json();
+  assert.equal(user.name, 'Valid Name');
+  assert.equal(user.sex, 'female');
+  assert.equal(user.height_cm, null, 'out-of-range heightCm must be rejected');
+});
+
+test('analyze-blow with an incomplete profile returns 400 before the LLM', async () => {
+  const email = 'http-incomplete@example.com';
+  await provisionUser(email);
+  const cookie = await login(email);
+  const res = await req('POST', '/api/analyze-blow', {
+    cookie,
+    body: { features: { durationSec: 4.5 } },
+  });
+  assert.equal(res.status, 400);
+});
+```
+
+- [ ] **Step 2: Run it, expect PASS**
+
+```bash
+node --test server/test-http.js
+```
+
+Expected: all seven tests pass. `npm test` (Task B2 Step 11) picks this
+file up automatically and runs it in its own process.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add server/test-http.js
+git commit -m "test: add HTTP integration test for auth + analyze surface"
 ```
 
 ---
@@ -2351,7 +2592,7 @@ git commit -m "feat: security hardening pass — rate limits, PII gate, timing-s
 
 **Spec coverage:**
 - Demo teardown: ✓ projector + WebSocket + room aggregate + narrator + DEMO_MODE + GP Letter + admin/reset + teamCode all removed across tasks A1–A5.
-- Corporate foundations: ✓ OPENAI_API_KEY (B1), Postgres + migrations (B2), orgs/users/check_ins schema (B3), email abstraction (B4), magic-code auth + JWT sessions (B5), middleware + /api/me (B6), admin bootstrap (B7), auth-gated analyze endpoints with persistence (B8), client LoginView + session bootstrap (B9), profile-setup gating (B10), docs (B11), security hardening (B12).
+- Corporate foundations: ✓ OPENAI_API_KEY (B1), Postgres + migrations (B2), orgs/users/check_ins schema (B3), email abstraction (B4), magic-code auth + JWT sessions (B5), middleware + /api/me (B6), admin bootstrap (B7), auth-gated analyze endpoints with persistence (B8), HTTP integration test (B8.5), client LoginView + session bootstrap (B9), profile-setup gating (B10), docs (B11), security hardening (B12).
 - Explicitly out of scope: admin/HR-facing dashboard, time-series UI, SSO, real email sender wiring (Resend/Mailgun), production deploy config, DPA text. These belong in a follow-up plan.
 
 **Placeholder scan:** No "TODO/TBD/fill in details" inside step bodies. Every code change includes the actual code. The placeholder migration in Task B2 step 5 explicitly contains a real CREATE TABLE statement (`_resona_meta`), it's a placeholder for **schema content**, not a plan-failure placeholder.
@@ -2369,3 +2610,11 @@ git commit -m "feat: security hardening pass — rate limits, PII gate, timing-s
 2. Task B8 changes analyze endpoints to require auth. If you have any leftover frontend code calling them without `credentials: 'include'` (Task B9 step 1 fixes this everywhere), it will break. Run the smoke tests in B8 step 4 with cookies.
 3. The `gpt-4o` default in B1 assumes OpenAI's chat completions API. If the existing PERSONAL_REPORT or HEART_REPORT prompts relied on Codex's response shape (e.g., specific reasoning format), responses may differ. Verify the personal report still renders cleanly after B1.
 4. B12 step 2's rate limiter relies on `req.ip` being the real client. Behind a proxy (Fly, Render, Cloudflare), set `app.set('trust proxy', 1)` — left out of the task body because it depends on the deploy target, which is out of scope for this plan.
+
+**Eng review decisions (2026-05-16):**
+1. **Migration concurrency** — `migrate()` (B2 Step 4) now wraps the whole run in a Postgres session advisory lock (`pg_advisory_lock`), so two processes booting at once (rolling deploy) serialise instead of racing to apply the same file.
+2. **`check_ins.org_id`** — denormalised onto `check_ins` (B3) with its own index, written from the DB user row in B8 (never the JWT, which can carry a stale org). Lets future org-scoped dashboard reads skip a join.
+3. **Global email uniqueness** — B5's magic-code lookup is global, so B3's per-org `UNIQUE (org_id, email)` is replaced by a global `UNIQUE INDEX` on `lower(email)`; otherwise two same-email accounts would make one unreachable at login.
+4. **Test isolation** — every DB-bound test closes the shared `pool` in `test.after`, which is only safe per-process; B2 Step 11 adds an `npm test` script that runs `node --test` (one child process per file) so the suite is never run by importing multiple test files into one process.
+5. **HTTP integration coverage** — new Task B8.5 boots the real Express app in-process and tests auth gating, `/api/me` validators, and the login round-trip over HTTP; `index.js` now exports `app` (B2 Step 8) to make this possible.
+6. **LLM timeout** — B1's OpenAI client is constructed with `timeout: 45_000, maxRetries: 1` instead of the SDK defaults (10-min timeout, 2 retries), capping a stalled-upstream analyze request near 90s.
