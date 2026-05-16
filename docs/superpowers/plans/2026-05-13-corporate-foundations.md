@@ -1556,7 +1556,7 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
     );
     res.json({ user: rows[0] });
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ error: 'email already exists in this org' });
+    if (err.code === '23505') return res.status(409).json({ error: 'email already exists' });
     console.error('[admin/users]', err);
     res.status(500).json({ error: 'failed' });
   }
@@ -2228,7 +2228,7 @@ Backbone for a real product. Demo-flavoured paths removed in Phase A; Phase B re
 
 - [x] OPENAI_API_KEY replaces `~/.codex/auth.json` reading. `server/glm-service.js` → `server/llm.js`. Default model `gpt-4o` (override via `OPENAI_MODEL`).
 - [x] Postgres + `pg` 8.x + migration runner (`server/db.js` + `server/migrations/`). `better-sqlite3` dropped.
-- [x] Schema: `orgs`, `users` (org_id FK, unique per-org email), `check_ins` (kind ∈ {breath, motion, heart}, jsonb payload, indexed by user+created_at), `auth_codes`.
+- [x] Schema: `orgs`, `users` (org_id FK, globally unique case-insensitive email), `check_ins` (org_id FK, kind ∈ {breath, motion, heart}, jsonb payload, indexed by user+created_at and org+created_at), `auth_codes`.
 - [x] Magic-code auth: 6-digit code, 10-min TTL, bcrypt-hashed at rest, single-use. `/api/auth/request` is idempotent and leaks no info about which emails exist. `/api/auth/verify` issues an HS256 JWT in an httpOnly cookie.
 - [x] Auth middleware + `/api/me` GET/PATCH for profile.
 - [x] Admin bootstrap endpoints (`/api/admin/orgs`, `/api/admin/users`) gated by `ADMIN_TOKEN` env.
