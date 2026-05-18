@@ -4,25 +4,22 @@ import http from 'node:http';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MODEL, askGLMJson, askGLMStream, isConfigured, AUTH_PATH } from './glm-service.js';
+import { MODEL, askGLMJson, isConfigured, AUTH_PATH } from './glm-service.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
   PERSONAL_REPORT_SYSTEM,
   GP_LETTER_SYSTEM,
   NEURO_REPORT_SYSTEM,
   HEART_REPORT_SYSTEM,
-  NARRATOR_SYSTEM,
   buildClassifierUserMessage,
   buildPersonalReportUserMessage,
   buildGpLetterUserMessage,
   buildNeuroReportUserMessage,
   buildHeartReportUserMessage,
-  buildNarratorUserMessage,
 } from './prompts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
-const DEMO_MODE = String(process.env.DEMO_MODE ?? '').toLowerCase() === 'true';
 
 const db = new Database(':memory:');
 db.pragma('journal_mode = MEMORY');
@@ -37,199 +34,6 @@ db.exec(`
     flagged INTEGER NOT NULL DEFAULT 0
   );
 `);
-
-// -----------------------------------------------------------------------------
-// Room aggregate state (ephemeral, cleared on restart).
-//
-// Per-device dedup: each browser/phone gets a stable sessionId (localStorage
-// UUID) and the room keeps ONE entry per sessionId, storing the best FVC that
-// device has posted. Re-blows from the same phone update that device's best
-// rather than adding another row to the team total. Keeps the leaderboard
-// ungameable by one over-eager participant.
-// -----------------------------------------------------------------------------
-const room = {
-  // sessionId -> { bestFev1, bestFvc, bestPef, bestPct, flagged, teamCode, blowCount, lastTs }
-  participants: new Map(),
-  newestBlowPct: null,
-  recentBlows: [], // chronological log of every blow incl. retries
-  narratorLog: [], // last 5 narrator lines
-  // Module 03 (Heart): sessionId -> { hrBpm, hrvRmssdMs, sdnnMs, quality, lastTs }
-  heartParticipants: new Map(),
-  newestHrBpm: null,
-};
-
-// Goal scales with the room. One typical FVC (3 L) per participant,
-// with a small floor so the bar is visible before the first blow.
-function goalLiters(count = room.participants.size) {
-  return Math.max(30, count * 3);
-}
-
-function aggregateTeams() {
-  const teams = new Map();
-  for (const p of room.participants.values()) {
-    if (!p.teamCode) continue;
-    const t = teams.get(p.teamCode) || { count: 0, totalLiters: 0, pctSum: 0 };
-    t.count += 1;
-    t.totalLiters += p.bestFvc;
-    t.pctSum += p.bestPct;
-    teams.set(p.teamCode, t);
-  }
-  return teams;
-}
-
-function teamLeaderboard(limit = 3) {
-  // Rank by mean percent-predicted so team size does not decide the winner.
-  // A solo member at 105% beats a crowded team averaging 90%. Demographics
-  // are already baked into percent-predicted so age/sex/height are fair.
-  const teams = aggregateTeams();
-  const entries = [];
-  for (const [code, t] of teams.entries()) {
-    entries.push({
-      teamCode: code,
-      count: t.count,
-      totalLiters: t.totalLiters,
-      meanPct: t.count > 0 ? t.pctSum / t.count : null,
-    });
-  }
-  entries.sort((a, b) => (b.meanPct ?? -Infinity) - (a.meanPct ?? -Infinity));
-  return entries.slice(0, limit);
-}
-
-function roomSnapshot() {
-  let totalLiters = 0;
-  let pctSum = 0;
-  let flaggedCount = 0;
-  for (const p of room.participants.values()) {
-    totalLiters += p.bestFvc;
-    pctSum += p.bestPct;
-    if (p.flagged) flaggedCount += 1;
-  }
-  const participantCount = room.participants.size;
-  const goal = goalLiters(participantCount);
-
-  let hrSum = 0;
-  let hrCountGood = 0;
-  for (const h of room.heartParticipants.values()) {
-    const grade = h.quality?.grade;
-    if ((grade === 'good' || grade === 'fair') && Number.isFinite(h.hrBpm)) {
-      hrSum += h.hrBpm;
-      hrCountGood += 1;
-    }
-  }
-
-  return {
-    participantCount,
-    totalLiters,
-    meanPercentPredicted: participantCount > 0 ? pctSum / participantCount : null,
-    flaggedCount,
-    goalLiters: goal,
-    progress: totalLiters / Math.max(1, goal),
-    newestBlowPct: room.newestBlowPct,
-    narratorLog: [...room.narratorLog],
-    topTeams: teamLeaderboard(3),
-    teamCount: aggregateTeams().size,
-    model: MODEL,
-    heart: {
-      heartCount: room.heartParticipants.size,
-      meanHrBpm: hrCountGood > 0 ? hrSum / hrCountGood : null,
-      newestHrBpm: room.newestHrBpm,
-    },
-  };
-}
-
-function recordBlow({ sessionId, fev1, fvc, pef, percentPredicted, flagged, teamCode = null }) {
-  // Fallback id for clients on old builds and for seedDemoMode synthetic blows.
-  const id = sessionId || `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  const prev = room.participants.get(id);
-  const isFirstBlow = !prev;
-  const improvedBest = isFirstBlow || fvc > prev.bestFvc;
-  const previousBestFvc = prev?.bestFvc ?? 0;
-  const fvcDelta = improvedBest ? fvc - previousBestFvc : 0;
-
-  if (improvedBest) {
-    room.participants.set(id, {
-      bestFev1: fev1,
-      bestFvc: fvc,
-      bestPef: pef,
-      bestPct: percentPredicted,
-      flagged,
-      teamCode: teamCode ?? prev?.teamCode ?? null,
-      blowCount: (prev?.blowCount ?? 0) + 1,
-      lastTs: Date.now(),
-    });
-  } else {
-    room.participants.set(id, {
-      ...prev,
-      teamCode: teamCode ?? prev.teamCode,
-      blowCount: prev.blowCount + 1,
-      lastTs: Date.now(),
-    });
-  }
-
-  room.newestBlowPct = percentPredicted;
-  room.recentBlows.push({ fev1, fvc, pef, pct: percentPredicted, flagged, teamCode, ts: Date.now() });
-  if (room.recentBlows.length > 50) room.recentBlows.shift();
-
-  return { improvedBest, isFirstBlow, fvcDelta };
-}
-
-function recordHeart({ sessionId, hrBpm, hrvRmssdMs, sdnnMs, quality, teamCode = null }) {
-  const id = sessionId || `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  const prev = room.heartParticipants.get(id);
-  const isFirstHeart = !prev;
-  room.heartParticipants.set(id, {
-    hrBpm,
-    hrvRmssdMs,
-    sdnnMs,
-    quality,
-    teamCode: teamCode ?? prev?.teamCode ?? null,
-    heartCount: (prev?.heartCount ?? 0) + 1,
-    lastTs: Date.now(),
-  });
-  if (quality?.grade === 'good' || quality?.grade === 'fair') room.newestHrBpm = hrBpm;
-  return { isFirstHeart };
-}
-
-function pushNarratorLine(line) {
-  if (!line) return;
-  room.narratorLog.push({ line, ts: Date.now() });
-  if (room.narratorLog.length > 5) room.narratorLog.shift();
-}
-
-// Optional demo seed, populates 30 synthetic-but-realistic blows at startup
-// so the projector isn't empty when the pitch begins.
-function seedDemoMode() {
-  const rand = (min, max) => Math.random() * (max - min) + min;
-  const normal = () => {
-    // Box-Muller approximation
-    const u1 = Math.max(1e-9, Math.random());
-    const u2 = Math.random();
-    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  };
-  for (let i = 0; i < 30; i++) {
-    const ageYears = Math.round(rand(22, 62));
-    const heightCm = Math.round(rand(155, 190));
-    const sex = Math.random() < 0.5 ? 'male' : 'female';
-    // Healthy-ish predicted
-    const predictedFev1 =
-      sex === 'male' ? 0.5536 - 0.01303 * ageYears - 1.72e-4 * ageYears * ageYears + 1.4098e-4 * heightCm * heightCm
-                     : 0.4333 - 0.00361 * ageYears - 1.94e-4 * ageYears * ageYears + 1.1496e-4 * heightCm * heightCm;
-    const predictedFvc = predictedFev1 * 1.22;
-    const pctDraw = Math.min(140, Math.max(55, 95 + normal() * 14));
-    const fev1 = predictedFev1 * (pctDraw / 100);
-    const fvc = predictedFvc * (pctDraw / 100);
-    const pef = fev1 * 2.1;
-    recordBlow({
-      fev1,
-      fvc,
-      pef,
-      percentPredicted: pctDraw,
-      flagged: pctDraw < 80,
-    });
-  }
-  const snap = roomSnapshot();
-  console.log(`[Resona] demo mode seeded ${snap.participantCount} synthetic participants, totalLiters=${snap.totalLiters.toFixed(1)}`);
-}
 
 // -----------------------------------------------------------------------------
 // Express + /health + /api/analyze-blow
@@ -247,8 +51,6 @@ app.get('/health', (req, res) => {
     tagline: 'Every body has a rhythm.',
     glm: { model: MODEL, configured: isConfigured(), auth_path: AUTH_PATH },
     db: 'sqlite-memory',
-    demoMode: DEMO_MODE,
-    room: roomSnapshot(),
     uptime_s: Math.round(process.uptime()),
   });
 });
@@ -598,26 +400,13 @@ app.post('/api/analyze-neuro', async (req, res) => {
 });
 
 app.post('/api/analyze-heart', async (req, res) => {
-  const { heart, demographics, sessionId } = req.body || {};
+  const { heart, demographics } = req.body || {};
   if (!heart || typeof heart !== 'object') {
     return res.status(400).json({ error: 'missing heart payload' });
   }
   if (!Number.isFinite(heart.hrBpm)) {
     return res.status(400).json({ error: 'heart.hrBpm must be a finite number' });
   }
-
-  const teamCode = typeof demographics?.teamCode === 'string' && demographics.teamCode.length > 0
-    ? demographics.teamCode.toUpperCase().slice(0, 6)
-    : null;
-
-  recordHeart({
-    sessionId,
-    hrBpm: heart.hrBpm,
-    hrvRmssdMs: heart.hrvRmssdMs ?? null,
-    sdnnMs: heart.sdnnMs ?? null,
-    quality: heart.quality ?? { grade: 'unknown', reasons: [] },
-    teamCode,
-  });
 
   if (heart.quality?.grade === 'poor') {
     return res.json({
@@ -653,18 +442,6 @@ app.post('/api/analyze-heart', async (req, res) => {
   res.json({ ok: true, report });
 });
 
-app.post('/api/admin/reset', (req, res) => {
-  room.participants.clear();
-  room.heartParticipants.clear();
-  room.newestBlowPct = null;
-  room.newestHrBpm = null;
-  room.recentBlows.length = 0;
-  room.narratorLog.length = 0;
-  broadcastToProjectors({ type: 'state', state: roomSnapshot(), resetAt: Date.now() });
-  console.log('[Resona] room state reset via /api/admin/reset');
-  res.json({ ok: true, state: roomSnapshot() });
-});
-
 app.post('/api/analyze-blow', async (req, res) => {
   const { features, estimate, demographics, sessionId } = req.body || {};
   if (!features || !estimate || !demographics) {
@@ -686,18 +463,6 @@ app.post('/api/analyze-blow', async (req, res) => {
   const flags = atsFlags(features);
 
   const flagged = estimate.percentPredicted.fev1 < 80;
-  const teamCode = typeof demographics.teamCode === 'string' && demographics.teamCode.length > 0
-    ? demographics.teamCode.toUpperCase().slice(0, 6)
-    : null;
-  recordBlow({
-    sessionId,
-    fev1: estimate.fev1,
-    fvc: estimate.fvc,
-    pef: estimate.pef,
-    percentPredicted: estimate.percentPredicted.fev1,
-    flagged,
-    teamCode,
-  });
 
   // LLM calls (sequential + retry + fallback)
   let personalReport;
@@ -771,55 +536,7 @@ app.post('/api/analyze-blow', async (req, res) => {
 // -----------------------------------------------------------------------------
 const server = http.createServer(app);
 
-// -----------------------------------------------------------------------------
-// NARRATOR loop, fires every 6s while participants exist.
-// -----------------------------------------------------------------------------
-const NARRATOR_INTERVAL_MS = 6000;
-let narratorInFlight = false;
-
-async function runNarratorTick() {
-  if (narratorInFlight) return;
-  if (room.participants.size === 0) return;
-  if (projectorSockets.size === 0) return; // no one listening, save the tokens
-
-  narratorInFlight = true;
-  const streamId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  try {
-    const snapshot = roomSnapshot();
-    broadcastToProjectors({ type: 'narrator_start', streamId });
-    const full = await askGLMStream(
-      [
-        { role: 'system', content: NARRATOR_SYSTEM },
-        { role: 'user', content: buildNarratorUserMessage(snapshot) },
-      ],
-      // Narrator is ambient hype, not revenue. `low` matched `high` quality in
-      // the eval at 2-3x speed, and stays inside the 6s tick without backing up.
-      { tag: 'narrator', reasoning: 'low' },
-      (delta) => {
-        broadcastToProjectors({ type: 'narrator_delta', streamId, delta });
-      },
-    );
-    const line = full.trim().replace(/^"+|"+$/g, '');
-    if (line) {
-      pushNarratorLine(line);
-      broadcastToProjectors({ type: 'narrator', streamId, line, state: roomSnapshot() });
-    } else {
-      broadcastToProjectors({ type: 'narrator_cancel', streamId });
-    }
-  } catch (err) {
-    console.warn(`[narrator] tick failed: ${err.message}`);
-    broadcastToProjectors({ type: 'narrator_cancel', streamId });
-  } finally {
-    narratorInFlight = false;
-  }
-}
-
-setInterval(runNarratorTick, NARRATOR_INTERVAL_MS);
-
-if (DEMO_MODE) seedDemoMode();
-
 server.listen(PORT, () => {
   console.log(`[Resona] server listening on :${PORT}`);
   console.log(`[Resona] Codex model pinned: ${MODEL} (auth: ${isConfigured() ? 'ready' : 'MISSING — run `codex login`'})`);
-  console.log(`[Resona] demo mode: ${DEMO_MODE ? 'ON (seeded)' : 'off'}`);
 });
