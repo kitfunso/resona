@@ -8,12 +8,10 @@ import { MODEL, askGLMJson, isConfigured, AUTH_PATH } from './glm-service.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
   PERSONAL_REPORT_SYSTEM,
-  GP_LETTER_SYSTEM,
   NEURO_REPORT_SYSTEM,
   HEART_REPORT_SYSTEM,
   buildClassifierUserMessage,
   buildPersonalReportUserMessage,
-  buildGpLetterUserMessage,
   buildNeuroReportUserMessage,
   buildHeartReportUserMessage,
 } from './prompts.js';
@@ -183,26 +181,6 @@ function personalReportFallback({ estimate }) {
     : 'See a GP if you notice sudden shortness of breath, new wheezing, or a cough that lasts more than three weeks.';
 
   return { headline, interpretation, actions, whenToWorry };
-}
-
-function gpLetterFallback({ demographics, estimate }) {
-  const name = demographics.name?.trim() || 'This individual';
-  const ppFev1 = Math.round(estimate.percentPredicted.fev1);
-  const ppFvc = Math.round(estimate.percentPredicted.fvc);
-  const ppPef = Math.round(estimate.percentPredicted.pef);
-  const letter =
-    `Dear GP,\n\n` +
-    `${name} (${demographics.ageYears}, ${demographics.sex}, ${demographics.heightCm} cm) completed a ` +
-    `phone-based acoustic spirometry screening at a public event.\n\n` +
-    `FEV1: ${estimate.fev1.toFixed(2)} L (${ppFev1}% predicted)\n` +
-    `FVC: ${estimate.fvc.toFixed(2)} L (${ppFvc}% predicted)\n` +
-    `PEF: ${estimate.pef.toFixed(2)} L/s (${ppPef}% predicted)\n` +
-    `FEV1/FVC ratio: ${estimate.fev1FvcRatio.toFixed(2)}\n\n` +
-    `These values are derived from smartphone microphone audio using the Hankinson NHANES III ` +
-    `reference equations. This is a screening tool, not clinical spirometry. Formal office ` +
-    `spirometry is recommended if any concern.\n\n` +
-    `Kind regards,\nResona Breath (acoustic screening tool)`;
-  return { letter };
 }
 
 function neuroReportFallback({ tremor, gait }) {
@@ -486,26 +464,6 @@ app.post('/api/analyze-blow', async (req, res) => {
   }
   personalReport.source = personalReportSource;
 
-  let gpLetterObj;
-  let gpLetterSource = 'ai';
-  try {
-    gpLetterObj = await askGLMJsonWithRetry(
-      [
-        { role: 'system', content: GP_LETTER_SYSTEM },
-        { role: 'user', content: buildGpLetterUserMessage({ estimate, demographics, atsFlags: flags }) },
-      ],
-      { tag: 'gp-letter', temperature: 0.3, max_tokens: 2500 },
-    );
-    if (!gpLetterObj?.letter) {
-      gpLetterObj = gpLetterFallback({ demographics, estimate });
-      gpLetterSource = 'fallback';
-    }
-  } catch (err) {
-    console.warn(`[analyze-blow] GP letter failed: ${err.message}`);
-    gpLetterObj = gpLetterFallback({ demographics, estimate });
-    gpLetterSource = 'fallback';
-  }
-
   try {
     db.prepare(
       'INSERT INTO blows (created_at, fev1, fvc, pef, percent_predicted, flagged) VALUES (?, ?, ?, ?, ?, ?)',
@@ -526,8 +484,6 @@ app.post('/api/analyze-blow', async (req, res) => {
     classification,
     atsFlags: classification.atsFlags || [],
     personalReport,
-    gpLetter: gpLetterObj.letter,
-    gpLetterSource,
   });
 });
 
