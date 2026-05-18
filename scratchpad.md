@@ -171,6 +171,20 @@ Pre-demo hardening from the post-merge review of Module 03. All four landed on `
 - [x] MediaPipe wasm served locally via inline vite plugin (dev middleware + build-time copy from `node_modules/@mediapipe/tasks-vision/wasm/`). No jsdelivr CDN dependency at demo time.
 - [x] HTTP/WS smoke test passed: `/api/analyze-heart` good / poor / unknown branches behave; mean HR gating verified (poor excluded); WS heart frames carry correct grade + teamCode.
 
+### Phase A: Demo teardown, COMPLETE (2026-05-13) ✅
+
+Removed in preparation for the corporate-product pivot:
+
+- [x] ProjectorView + `/projector` route + WebSocket server + `broadcastToProjectors`.
+- [x] Room aggregate state, `roomSnapshot`, `recordBlow`/`recordHeart` tracking, narrator loop, `NARRATOR_SYSTEM` prompt.
+- [x] `teamCode` threading from every analyze endpoint and client view.
+- [x] `DEMO_MODE` env flag + `seedDemoMode` function.
+- [x] GP Letter feature (prompt, server generation, ResultsView card).
+- [x] `/api/admin/reset` endpoint.
+- [x] `ws` dependency dropped from `server/package.json`.
+
+Codebase is now just the three participant-side biosignal flows + LLM-backed personal reports. Ready for corporate foundations (Phase B).
+
 ## Known issues
 
 - iOS Safari requires a direct user tap to unlock `AudioContext`, Phase 1 must handle this explicitly.

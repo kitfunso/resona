@@ -79,12 +79,4 @@ resona/
 
 ## Status
 
-Hackathon prototype, three modules shipped (Breath, Motion, Heart). Currently transitioning from single-room demo into a real product. The next set of decisions is on `scratchpad.md` under "Product direction".
-
-Known things that need to change before this is shippable as a product, captured for reference, not yet prioritised:
-
-- **Auth.** Codex uses the developer's `~/.codex/auth.json`. A real product needs proper LLM credentials (API key on the server, per-tenant rate limits) or a different inference path entirely.
-- **Persistence.** SQLite is `:memory:` and dies on restart. Real product needs durable team / participant / check-in storage and an account model.
-- **Multi-tenant.** One global room state. Needs teams, invites, and isolation.
-- **Deployment.** Currently ngrok + localhost. Needs an actual hosted backend (HTTPS, secrets, observability).
-- **Privacy posture.** Already strong (no raw audio / video / IMU leaves the device), but a real product needs a written policy, a DPA, and a clear medical-device disclaimer.
+Hackathon prototype, three biosignal pipelines shipped (Breath, Motion, Heart). Demo-day surface (projector view, leaderboard, narrator, GP Letter, DEMO_MODE) has been removed. The codebase is mid-transition toward a corporate product. Next: Postgres + auth + multi-tenant org model (see `docs/superpowers/plans/2026-05-13-corporate-foundations.md`).
