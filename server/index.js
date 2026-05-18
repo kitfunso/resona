@@ -4,7 +4,7 @@ import http from 'node:http';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MODEL, askGLMJson, isConfigured, AUTH_PATH } from './glm-service.js';
+import { MODEL, askGLMJson, isConfigured } from './llm.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
   PERSONAL_REPORT_SYSTEM,
@@ -47,7 +47,7 @@ app.get('/health', (req, res) => {
     product: 'Resona',
     modules: ['Breath', 'Neuro', 'Heart'],
     tagline: 'Every body has a rhythm.',
-    glm: { model: MODEL, configured: isConfigured(), auth_path: AUTH_PATH },
+    glm: { model: MODEL, configured: isConfigured() },
     db: 'sqlite-memory',
     uptime_s: Math.round(process.uptime()),
   });
@@ -494,5 +494,5 @@ const server = http.createServer(app);
 
 server.listen(PORT, () => {
   console.log(`[Resona] server listening on :${PORT}`);
-  console.log(`[Resona] Codex model pinned: ${MODEL} (auth: ${isConfigured() ? 'ready' : 'MISSING — run `codex login`'})`);
+  console.log(`[Resona] LLM model: ${MODEL} (configured: ${isConfigured() ? 'yes' : 'NO — set OPENAI_API_KEY'})`);
 });
