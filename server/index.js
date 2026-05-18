@@ -1,243 +1,70 @@
 import express from 'express';
 import cors from 'cors';
-import { WebSocketServer } from 'ws';
 import http from 'node:http';
-import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MODEL, askGLMJson, askGLMStream, isConfigured, AUTH_PATH } from './glm-service.js';
+import crypto from 'node:crypto';
+import rateLimit from 'express-rate-limit';
+import { migrate, pool } from './db.js';
+import { requestCode, verifyCode, issueSession, SESSION_COOKIE, SESSION_TTL_SEC_OUT } from './auth.js';
+import { requireAuth, loadCurrentUser } from './middleware-auth.js';
+import { MODEL, askGLMJson, isConfigured } from './llm.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
   PERSONAL_REPORT_SYSTEM,
-  GP_LETTER_SYSTEM,
   NEURO_REPORT_SYSTEM,
   HEART_REPORT_SYSTEM,
-  NARRATOR_SYSTEM,
   buildClassifierUserMessage,
   buildPersonalReportUserMessage,
-  buildGpLetterUserMessage,
   buildNeuroReportUserMessage,
   buildHeartReportUserMessage,
-  buildNarratorUserMessage,
 } from './prompts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
-const DEMO_MODE = String(process.env.DEMO_MODE ?? '').toLowerCase() === 'true';
 
-const db = new Database(':memory:');
-db.pragma('journal_mode = MEMORY');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS blows (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    fev1 REAL NOT NULL,
-    fvc REAL NOT NULL,
-    pef REAL NOT NULL,
-    percent_predicted REAL NOT NULL,
-    flagged INTEGER NOT NULL DEFAULT 0
-  );
-`);
+const authRequestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 3,
+  keyGenerator: (req) => `${req.ip}:${String(req.body?.email ?? '').toLowerCase()}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too many requests' },
+});
 
-// -----------------------------------------------------------------------------
-// Room aggregate state (ephemeral, cleared on restart).
-//
-// Per-device dedup: each browser/phone gets a stable sessionId (localStorage
-// UUID) and the room keeps ONE entry per sessionId, storing the best FVC that
-// device has posted. Re-blows from the same phone update that device's best
-// rather than adding another row to the team total. Keeps the leaderboard
-// ungameable by one over-eager participant.
-// -----------------------------------------------------------------------------
-const room = {
-  // sessionId -> { bestFev1, bestFvc, bestPef, bestPct, flagged, teamCode, blowCount, lastTs }
-  participants: new Map(),
-  newestBlowPct: null,
-  recentBlows: [], // chronological log of every blow incl. retries
-  narratorLog: [], // last 5 narrator lines
-  // Module 03 (Heart): sessionId -> { hrBpm, hrvRmssdMs, sdnnMs, quality, lastTs }
-  heartParticipants: new Map(),
-  newestHrBpm: null,
-};
+const authVerifyLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req) => `${req.ip}:${String(req.body?.email ?? '').toLowerCase()}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too many attempts; try again later' },
+});
 
-// Goal scales with the room. One typical FVC (3 L) per participant,
-// with a small floor so the bar is visible before the first blow.
-function goalLiters(count = room.participants.size) {
-  return Math.max(30, count * 3);
-}
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
-function aggregateTeams() {
-  const teams = new Map();
-  for (const p of room.participants.values()) {
-    if (!p.teamCode) continue;
-    const t = teams.get(p.teamCode) || { count: 0, totalLiters: 0, pctSum: 0 };
-    t.count += 1;
-    t.totalLiters += p.bestFvc;
-    t.pctSum += p.bestPct;
-    teams.set(p.teamCode, t);
-  }
-  return teams;
-}
-
-function teamLeaderboard(limit = 3) {
-  // Rank by mean percent-predicted so team size does not decide the winner.
-  // A solo member at 105% beats a crowded team averaging 90%. Demographics
-  // are already baked into percent-predicted so age/sex/height are fair.
-  const teams = aggregateTeams();
-  const entries = [];
-  for (const [code, t] of teams.entries()) {
-    entries.push({
-      teamCode: code,
-      count: t.count,
-      totalLiters: t.totalLiters,
-      meanPct: t.count > 0 ? t.pctSum / t.count : null,
-    });
-  }
-  entries.sort((a, b) => (b.meanPct ?? -Infinity) - (a.meanPct ?? -Infinity));
-  return entries.slice(0, limit);
-}
-
-function roomSnapshot() {
-  let totalLiters = 0;
-  let pctSum = 0;
-  let flaggedCount = 0;
-  for (const p of room.participants.values()) {
-    totalLiters += p.bestFvc;
-    pctSum += p.bestPct;
-    if (p.flagged) flaggedCount += 1;
-  }
-  const participantCount = room.participants.size;
-  const goal = goalLiters(participantCount);
-
-  let hrSum = 0;
-  let hrCountGood = 0;
-  for (const h of room.heartParticipants.values()) {
-    const grade = h.quality?.grade;
-    if ((grade === 'good' || grade === 'fair') && Number.isFinite(h.hrBpm)) {
-      hrSum += h.hrBpm;
-      hrCountGood += 1;
-    }
-  }
-
-  return {
-    participantCount,
-    totalLiters,
-    meanPercentPredicted: participantCount > 0 ? pctSum / participantCount : null,
-    flaggedCount,
-    goalLiters: goal,
-    progress: totalLiters / Math.max(1, goal),
-    newestBlowPct: room.newestBlowPct,
-    narratorLog: [...room.narratorLog],
-    topTeams: teamLeaderboard(3),
-    teamCount: aggregateTeams().size,
-    model: MODEL,
-    heart: {
-      heartCount: room.heartParticipants.size,
-      meanHrBpm: hrCountGood > 0 ? hrSum / hrCountGood : null,
-      newestHrBpm: room.newestHrBpm,
-    },
-  };
-}
-
-function recordBlow({ sessionId, fev1, fvc, pef, percentPredicted, flagged, teamCode = null }) {
-  // Fallback id for clients on old builds and for seedDemoMode synthetic blows.
-  const id = sessionId || `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  const prev = room.participants.get(id);
-  const isFirstBlow = !prev;
-  const improvedBest = isFirstBlow || fvc > prev.bestFvc;
-  const previousBestFvc = prev?.bestFvc ?? 0;
-  const fvcDelta = improvedBest ? fvc - previousBestFvc : 0;
-
-  if (improvedBest) {
-    room.participants.set(id, {
-      bestFev1: fev1,
-      bestFvc: fvc,
-      bestPef: pef,
-      bestPct: percentPredicted,
-      flagged,
-      teamCode: teamCode ?? prev?.teamCode ?? null,
-      blowCount: (prev?.blowCount ?? 0) + 1,
-      lastTs: Date.now(),
-    });
-  } else {
-    room.participants.set(id, {
-      ...prev,
-      teamCode: teamCode ?? prev.teamCode,
-      blowCount: prev.blowCount + 1,
-      lastTs: Date.now(),
-    });
-  }
-
-  room.newestBlowPct = percentPredicted;
-  room.recentBlows.push({ fev1, fvc, pef, pct: percentPredicted, flagged, teamCode, ts: Date.now() });
-  if (room.recentBlows.length > 50) room.recentBlows.shift();
-
-  return { improvedBest, isFirstBlow, fvcDelta };
-}
-
-function recordHeart({ sessionId, hrBpm, hrvRmssdMs, sdnnMs, quality, teamCode = null }) {
-  const id = sessionId || `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  const prev = room.heartParticipants.get(id);
-  const isFirstHeart = !prev;
-  room.heartParticipants.set(id, {
-    hrBpm,
-    hrvRmssdMs,
-    sdnnMs,
-    quality,
-    teamCode: teamCode ?? prev?.teamCode ?? null,
-    heartCount: (prev?.heartCount ?? 0) + 1,
-    lastTs: Date.now(),
-  });
-  if (quality?.grade === 'good' || quality?.grade === 'fair') room.newestHrBpm = hrBpm;
-  return { isFirstHeart };
-}
-
-function pushNarratorLine(line) {
-  if (!line) return;
-  room.narratorLog.push({ line, ts: Date.now() });
-  if (room.narratorLog.length > 5) room.narratorLog.shift();
-}
-
-// Optional demo seed, populates 30 synthetic-but-realistic blows at startup
-// so the projector isn't empty when the pitch begins.
-function seedDemoMode() {
-  const rand = (min, max) => Math.random() * (max - min) + min;
-  const normal = () => {
-    // Box-Muller approximation
-    const u1 = Math.max(1e-9, Math.random());
-    const u2 = Math.random();
-    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  };
-  for (let i = 0; i < 30; i++) {
-    const ageYears = Math.round(rand(22, 62));
-    const heightCm = Math.round(rand(155, 190));
-    const sex = Math.random() < 0.5 ? 'male' : 'female';
-    // Healthy-ish predicted
-    const predictedFev1 =
-      sex === 'male' ? 0.5536 - 0.01303 * ageYears - 1.72e-4 * ageYears * ageYears + 1.4098e-4 * heightCm * heightCm
-                     : 0.4333 - 0.00361 * ageYears - 1.94e-4 * ageYears * ageYears + 1.1496e-4 * heightCm * heightCm;
-    const predictedFvc = predictedFev1 * 1.22;
-    const pctDraw = Math.min(140, Math.max(55, 95 + normal() * 14));
-    const fev1 = predictedFev1 * (pctDraw / 100);
-    const fvc = predictedFvc * (pctDraw / 100);
-    const pef = fev1 * 2.1;
-    recordBlow({
-      fev1,
-      fvc,
-      pef,
-      percentPredicted: pctDraw,
-      flagged: pctDraw < 80,
-    });
-  }
-  const snap = roomSnapshot();
-  console.log(`[Resona] demo mode seeded ${snap.participantCount} synthetic participants, totalLiters=${snap.totalLiters.toFixed(1)}`);
-}
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5174')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 // -----------------------------------------------------------------------------
 // Express + /health + /api/analyze-blow
 // -----------------------------------------------------------------------------
 const app = express();
-app.set('trust proxy', true);
-app.use(cors());
+app.set('trust proxy', 1);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(new Error('CORS not allowed'));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (req, res) => {
@@ -246,10 +73,8 @@ app.get('/health', (req, res) => {
     product: 'Resona',
     modules: ['Breath', 'Neuro', 'Heart'],
     tagline: 'Every body has a rhythm.',
-    glm: { model: MODEL, configured: isConfigured(), auth_path: AUTH_PATH },
-    db: 'sqlite-memory',
-    demoMode: DEMO_MODE,
-    room: roomSnapshot(),
+    glm: { model: MODEL, configured: isConfigured() },
+    db: 'postgres',
     uptime_s: Math.round(process.uptime()),
   });
 });
@@ -382,26 +207,6 @@ function personalReportFallback({ estimate }) {
     : 'See a GP if you notice sudden shortness of breath, new wheezing, or a cough that lasts more than three weeks.';
 
   return { headline, interpretation, actions, whenToWorry };
-}
-
-function gpLetterFallback({ demographics, estimate }) {
-  const name = demographics.name?.trim() || 'This individual';
-  const ppFev1 = Math.round(estimate.percentPredicted.fev1);
-  const ppFvc = Math.round(estimate.percentPredicted.fvc);
-  const ppPef = Math.round(estimate.percentPredicted.pef);
-  const letter =
-    `Dear GP,\n\n` +
-    `${name} (${demographics.ageYears}, ${demographics.sex}, ${demographics.heightCm} cm) completed a ` +
-    `phone-based acoustic spirometry screening at a public event.\n\n` +
-    `FEV1: ${estimate.fev1.toFixed(2)} L (${ppFev1}% predicted)\n` +
-    `FVC: ${estimate.fvc.toFixed(2)} L (${ppFvc}% predicted)\n` +
-    `PEF: ${estimate.pef.toFixed(2)} L/s (${ppPef}% predicted)\n` +
-    `FEV1/FVC ratio: ${estimate.fev1FvcRatio.toFixed(2)}\n\n` +
-    `These values are derived from smartphone microphone audio using the Hankinson NHANES III ` +
-    `reference equations. This is a screening tool, not clinical spirometry. Formal office ` +
-    `spirometry is recommended if any concern.\n\n` +
-    `Kind regards,\nResona Breath (acoustic screening tool)`;
-  return { letter };
 }
 
 function neuroReportFallback({ tremor, gait }) {
@@ -568,8 +373,23 @@ function scrubReport(report) {
   return report;
 }
 
-app.post('/api/analyze-neuro', async (req, res) => {
-  const { tremor, gait, demographics } = req.body || {};
+app.post('/api/analyze-neuro', requireAuth, async (req, res) => {
+  const user = await loadCurrentUser(req.auth.userId);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  const ageYears = user.dob
+    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
+    : null;
+  const demographics = {
+    age: ageYears,
+    sex: user.sex,
+    heightCm: user.height_cm,
+    ethnicity: user.ethnicity,
+  };
+  if (!ageYears || !demographics.sex) {
+    return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
+  }
+
+  const { tremor, gait } = req.body || {};
   if (!tremor && !gait) {
     return res.status(400).json({ error: 'need at least one of tremor or gait' });
   }
@@ -595,42 +415,40 @@ app.post('/api/analyze-neuro', async (req, res) => {
   }
   report.source = source;
   scrubReport(report);
+  try {
+    await pool.query(
+      `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'motion', $3::jsonb)`,
+      [req.auth.userId, user.org_id, JSON.stringify({ tremor: req.body.tremor, gait: req.body.gait, neuroReport: report })],
+    );
+  } catch (err) {
+    console.error('[analyze-neuro] check_ins persist failed:', err.message);
+  }
   res.json({ ok: true, report });
 });
 
-app.post('/api/analyze-heart', async (req, res) => {
-  const { heart, demographics, sessionId } = req.body || {};
+app.post('/api/analyze-heart', requireAuth, async (req, res) => {
+  const user = await loadCurrentUser(req.auth.userId);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  const ageYears = user.dob
+    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
+    : null;
+  const demographics = {
+    age: ageYears,
+    sex: user.sex,
+    heightCm: user.height_cm,
+    ethnicity: user.ethnicity,
+  };
+  if (!ageYears || !demographics.sex) {
+    return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
+  }
+
+  const { heart } = req.body || {};
   if (!heart || typeof heart !== 'object') {
     return res.status(400).json({ error: 'missing heart payload' });
   }
   if (!Number.isFinite(heart.hrBpm)) {
     return res.status(400).json({ error: 'heart.hrBpm must be a finite number' });
   }
-
-  const teamCode = typeof demographics?.teamCode === 'string' && demographics.teamCode.length > 0
-    ? demographics.teamCode.toUpperCase().slice(0, 6)
-    : null;
-
-  const { isFirstHeart } = recordHeart({
-    sessionId,
-    hrBpm: heart.hrBpm,
-    hrvRmssdMs: heart.hrvRmssdMs ?? null,
-    sdnnMs: heart.sdnnMs ?? null,
-    quality: heart.quality ?? { grade: 'unknown', reasons: [] },
-    teamCode,
-  });
-
-  broadcastToProjectors({
-    type: 'heart',
-    heart: {
-      hrBpm: Math.round(heart.hrBpm),
-      hrvRmssdMs: Number.isFinite(heart.hrvRmssdMs) ? Number(heart.hrvRmssdMs.toFixed(1)) : null,
-      grade: heart.quality?.grade ?? 'unknown',
-      isFirstHeart,
-      teamCode,
-    },
-    state: roomSnapshot(),
-  });
 
   if (heart.quality?.grade === 'poor') {
     return res.json({
@@ -663,28 +481,49 @@ app.post('/api/analyze-heart', async (req, res) => {
   }
   report.source = source;
   scrubReport(report);
+  try {
+    await pool.query(
+      `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'heart', $3::jsonb)`,
+      [req.auth.userId, user.org_id, JSON.stringify({ heart: req.body.heart, heartReport: report })],
+    );
+  } catch (err) {
+    console.error('[analyze-heart] check_ins persist failed:', err.message);
+  }
   res.json({ ok: true, report });
 });
 
-app.post('/api/admin/reset', (req, res) => {
-  room.participants.clear();
-  room.heartParticipants.clear();
-  room.newestBlowPct = null;
-  room.newestHrBpm = null;
-  room.recentBlows.length = 0;
-  room.narratorLog.length = 0;
-  broadcastToProjectors({ type: 'state', state: roomSnapshot(), resetAt: Date.now() });
-  console.log('[Resona] room state reset via /api/admin/reset');
-  res.json({ ok: true, state: roomSnapshot() });
-});
-
-app.post('/api/analyze-blow', async (req, res) => {
-  const { features, estimate, demographics, sessionId } = req.body || {};
-  if (!features || !estimate || !demographics) {
-    return res.status(400).json({ error: 'missing features, estimate, or demographics' });
+app.post('/api/analyze-blow', requireAuth, async (req, res) => {
+  const user = await loadCurrentUser(req.auth.userId);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  const ageYears = user.dob
+    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
+    : null;
+  const demographics = {
+    age: ageYears,
+    sex: user.sex,
+    heightCm: user.height_cm,
+    ethnicity: user.ethnicity,
+  };
+  if (!ageYears || !demographics.sex || !demographics.heightCm) {
+    return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
   }
-  if (!demographics.sex || !demographics.ageYears || !demographics.heightCm) {
-    return res.status(400).json({ error: 'demographics requires sex, ageYears, heightCm' });
+
+  const { features, estimate, sessionId } = req.body || {};
+  if (!features || !estimate) {
+    return res.status(400).json({ error: 'missing features or estimate' });
+  }
+  // Validate the estimate shape up front: classifierFallback and
+  // personalReportFallback dereference these fields, and a malformed body
+  // would otherwise throw deep in a handler and crash the process.
+  if (
+    !Number.isFinite(estimate.fev1) ||
+    !Number.isFinite(estimate.fvc) ||
+    !Number.isFinite(estimate.pef) ||
+    !Number.isFinite(estimate.effortScore) ||
+    !estimate.percentPredicted ||
+    !Number.isFinite(estimate.percentPredicted.fev1)
+  ) {
+    return res.status(400).json({ error: 'malformed estimate' });
   }
 
   const classification = classifierFallback({ features, estimate });
@@ -698,34 +537,7 @@ app.post('/api/analyze-blow', async (req, res) => {
 
   const flags = atsFlags(features);
 
-  // Update room aggregate state + broadcast to projectors BEFORE LLM calls.
-  // That way the projector sees the new total within milliseconds, not 20s later.
   const flagged = estimate.percentPredicted.fev1 < 80;
-  const teamCode = typeof demographics.teamCode === 'string' && demographics.teamCode.length > 0
-    ? demographics.teamCode.toUpperCase().slice(0, 6)
-    : null;
-  const blowResult = recordBlow({
-    sessionId,
-    fev1: estimate.fev1,
-    fvc: estimate.fvc,
-    pef: estimate.pef,
-    percentPredicted: estimate.percentPredicted.fev1,
-    flagged,
-    teamCode,
-  });
-  broadcastToProjectors({
-    type: 'blow',
-    blow: {
-      pct: Math.round(estimate.percentPredicted.fev1),
-      fvc: Number(estimate.fvc.toFixed(2)),
-      flagged,
-      teamCode,
-      improvedBest: blowResult.improvedBest,
-      isFirstBlow: blowResult.isFirstBlow,
-      fvcDelta: Number(blowResult.fvcDelta.toFixed(2)),
-    },
-    state: roomSnapshot(),
-  });
 
   // LLM calls (sequential + retry + fallback)
   let personalReport;
@@ -749,144 +561,207 @@ app.post('/api/analyze-blow', async (req, res) => {
   }
   personalReport.source = personalReportSource;
 
-  let gpLetterObj;
-  let gpLetterSource = 'ai';
   try {
-    gpLetterObj = await askGLMJsonWithRetry(
-      [
-        { role: 'system', content: GP_LETTER_SYSTEM },
-        { role: 'user', content: buildGpLetterUserMessage({ estimate, demographics, atsFlags: flags }) },
-      ],
-      { tag: 'gp-letter', temperature: 0.3, max_tokens: 2500 },
-    );
-    if (!gpLetterObj?.letter) {
-      gpLetterObj = gpLetterFallback({ demographics, estimate });
-      gpLetterSource = 'fallback';
-    }
-  } catch (err) {
-    console.warn(`[analyze-blow] GP letter failed: ${err.message}`);
-    gpLetterObj = gpLetterFallback({ demographics, estimate });
-    gpLetterSource = 'fallback';
-  }
-
-  try {
-    db.prepare(
-      'INSERT INTO blows (created_at, fev1, fvc, pef, percent_predicted, flagged) VALUES (?, ?, ?, ?, ?, ?)',
-    ).run(
-      new Date().toISOString(),
-      estimate.fev1,
-      estimate.fvc,
-      estimate.pef,
-      estimate.percentPredicted.fev1,
-      flagged ? 1 : 0,
+    await pool.query(
+      `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'breath', $3::jsonb)`,
+      [req.auth.userId, user.org_id, JSON.stringify({ features: req.body.features, estimate, atsFlags: flags, personalReport })],
     );
   } catch (err) {
-    console.warn(`[analyze-blow] sqlite insert failed: ${err.message}`);
+    console.error('[analyze-blow] check_ins persist failed:', err.message);
   }
-
   res.json({
     valid: true,
     classification,
     atsFlags: classification.atsFlags || [],
     personalReport,
-    gpLetter: gpLetterObj.letter,
-    gpLetterSource,
   });
 });
 
+app.post('/api/auth/request', authRequestLimiter, async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email : '';
+  if (!email.includes('@')) return res.status(400).json({ error: 'invalid email' });
+  try {
+    await requestCode(email);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[auth/request]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+app.post('/api/auth/verify', authVerifyLimiter, async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email : '';
+  const code = typeof req.body?.code === 'string' ? req.body.code : '';
+  if (!email || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: 'invalid input' });
+  }
+  try {
+    const session = await verifyCode(email, code);
+    const token = await issueSession({ userId: session.userId, orgId: session.orgId });
+    res.cookie(SESSION_COOKIE, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: SESSION_TTL_SEC_OUT * 1000,
+      path: '/',
+    });
+    res.json({ ok: true, email: session.email });
+  } catch (err) {
+    res.status(401).json({ error: 'invalid or expired code' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie(SESSION_COOKIE, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  });
+  res.json({ ok: true });
+});
+
+app.get('/api/me', requireAuth, async (req, res) => {
+  const user = await loadCurrentUser(req.auth.userId);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  res.json({ user });
+});
+
+const SEX_VALUES = new Set(['male', 'female', 'intersex', 'other', 'prefer-not-to-say']);
+const ETHNICITY_VALUES = new Set([
+  'Caucasian', 'African', 'African-American', 'Hispanic', 'East Asian',
+  'South Asian', 'Southeast Asian', 'Middle Eastern', 'Indigenous', 'Mixed', 'Other',
+]);
+
+app.patch('/api/me', requireAuth, async (req, res) => {
+  const { name, dob, heightCm, sex, ethnicity } = req.body ?? {};
+  const allowed = {};
+  if (typeof name === 'string') {
+    const cleaned = name.replace(/[^\p{L}\p{M} .'\-]/gu, '').slice(0, 200).trim();
+    if (cleaned.length > 0) allowed.name = cleaned;
+  }
+  if (typeof dob === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    const d = new Date(`${dob}T00:00:00Z`);
+    const yr = d.getUTCFullYear();
+    if (!Number.isNaN(d.getTime()) && yr >= 1900 && d.getTime() <= Date.now()) {
+      allowed.dob = dob;
+    }
+  }
+  if (Number.isInteger(heightCm) && heightCm > 50 && heightCm < 250) allowed.height_cm = heightCm;
+  if (typeof sex === 'string' && SEX_VALUES.has(sex)) allowed.sex = sex;
+  if (typeof ethnicity === 'string' && ETHNICITY_VALUES.has(ethnicity)) allowed.ethnicity = ethnicity;
+  const keys = Object.keys(allowed);
+  if (keys.length === 0) return res.json({ user: await loadCurrentUser(req.auth.userId) });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+  const values = keys.map((k) => allowed[k]);
+  values.push(req.auth.userId);
+  try {
+    await pool.query(`UPDATE users SET ${setClause} WHERE id = $${values.length}`, values);
+  } catch (err) {
+    if (err.code === '22008' || err.code === '22007') {
+      return res.status(400).json({ error: 'invalid date' });
+    }
+    throw err;
+  }
+  res.json({ user: await loadCurrentUser(req.auth.userId) });
+});
+
 // -----------------------------------------------------------------------------
-// WebSocket: projector clients subscribe to room state + narrator lines.
+// Admin bootstrap endpoints
+// -----------------------------------------------------------------------------
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+if (ADMIN_TOKEN && ADMIN_TOKEN.length < 32) {
+  throw new Error('ADMIN_TOKEN must be at least 32 chars');
+}
+const ADMIN_TOKEN_BUF = ADMIN_TOKEN ? Buffer.from(ADMIN_TOKEN) : null;
+
+function requireAdmin(req, res, next) {
+  if (!ADMIN_TOKEN_BUF) return res.status(503).json({ error: 'admin disabled' });
+  const provided = req.headers['x-admin-token'];
+  if (typeof provided !== 'string') return res.status(401).json({ error: 'unauthorized' });
+  const providedBuf = Buffer.from(provided);
+  if (providedBuf.length !== ADMIN_TOKEN_BUF.length) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  if (!crypto.timingSafeEqual(providedBuf, ADMIN_TOKEN_BUF)) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  next();
+}
+
+app.post('/api/admin/orgs', adminLimiter, requireAdmin, async (req, res) => {
+  const { slug, name, firstUserEmail } = req.body ?? {};
+  if (typeof slug !== 'string' || !/^[a-z0-9-]{2,40}$/.test(slug)) {
+    return res.status(400).json({ error: 'invalid slug (lowercase, digits, hyphens, 2-40 chars)' });
+  }
+  if (typeof name !== 'string' || name.length < 1) {
+    return res.status(400).json({ error: 'invalid name' });
+  }
+  if (typeof firstUserEmail !== 'string' || !firstUserEmail.includes('@')) {
+    return res.status(400).json({ error: 'invalid firstUserEmail' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: orgs } = await client.query(
+      'INSERT INTO orgs (slug, name) VALUES ($1, $2) RETURNING id',
+      [slug, name],
+    );
+    const { rows: users } = await client.query(
+      'INSERT INTO users (org_id, email) VALUES ($1, lower($2)) RETURNING id, email',
+      [orgs[0].id, firstUserEmail],
+    );
+    await client.query('COMMIT');
+    res.json({ org: { id: orgs[0].id, slug, name }, firstUser: users[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') return res.status(409).json({ error: 'slug or email already exists' });
+    console.error('[admin/orgs]', err);
+    res.status(500).json({ error: 'failed' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/admin/users', adminLimiter, requireAdmin, async (req, res) => {
+  const { orgSlug, email } = req.body ?? {};
+  if (typeof orgSlug !== 'string' || typeof email !== 'string' || !email.includes('@')) {
+    return res.status(400).json({ error: 'invalid input' });
+  }
+  const { rows: orgs } = await pool.query('SELECT id FROM orgs WHERE slug = $1', [orgSlug]);
+  if (orgs.length === 0) return res.status(404).json({ error: 'org not found' });
+  try {
+    const { rows } = await pool.query(
+      'INSERT INTO users (org_id, email) VALUES ($1, lower($2)) RETURNING id, email',
+      [orgs[0].id, email],
+    );
+    res.json({ user: rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'email already exists' });
+    console.error('[admin/users]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// HTTP server
 // -----------------------------------------------------------------------------
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
 
-const projectorSockets = new Set();
+// Export the Express app so the HTTP integration test (Task B8.5) can
+// mount it without binding a port. Only migrate + listen when this file
+// is run directly, not when it's imported.
+export { app };
 
-function broadcastToProjectors(payload) {
-  const msg = JSON.stringify(payload);
-  for (const ws of projectorSockets) {
-    if (ws.readyState === ws.OPEN) {
-      try {
-        ws.send(msg);
-      } catch (err) {
-        console.warn('[ws] send failed:', err.message);
-      }
-    }
-  }
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  migrate()
+    .then(() => {
+      server.listen(PORT, () => {
+        console.log(`[Resona] backend listening on :${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('[Resona] migration failed, aborting boot:', err);
+      process.exit(1);
+    });
 }
-
-wss.on('connection', (socket) => {
-  socket.isProjector = false;
-  socket.send(JSON.stringify({ type: 'hello', product: 'Resona' }));
-
-  socket.on('message', (raw) => {
-    let msg;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
-    if (msg?.type === 'subscribe' && msg.role === 'projector') {
-      socket.isProjector = true;
-      projectorSockets.add(socket);
-      socket.send(JSON.stringify({ type: 'state', state: roomSnapshot() }));
-    }
-  });
-
-  socket.on('close', () => {
-    projectorSockets.delete(socket);
-  });
-});
-
-// -----------------------------------------------------------------------------
-// NARRATOR loop, fires every 6s while participants exist.
-// -----------------------------------------------------------------------------
-const NARRATOR_INTERVAL_MS = 6000;
-let narratorInFlight = false;
-
-async function runNarratorTick() {
-  if (narratorInFlight) return;
-  if (room.participants.size === 0) return;
-  if (projectorSockets.size === 0) return; // no one listening, save the tokens
-
-  narratorInFlight = true;
-  const streamId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  try {
-    const snapshot = roomSnapshot();
-    broadcastToProjectors({ type: 'narrator_start', streamId });
-    const full = await askGLMStream(
-      [
-        { role: 'system', content: NARRATOR_SYSTEM },
-        { role: 'user', content: buildNarratorUserMessage(snapshot) },
-      ],
-      // Narrator is ambient hype, not revenue. `low` matched `high` quality in
-      // the eval at 2-3x speed, and stays inside the 6s tick without backing up.
-      { tag: 'narrator', reasoning: 'low' },
-      (delta) => {
-        broadcastToProjectors({ type: 'narrator_delta', streamId, delta });
-      },
-    );
-    const line = full.trim().replace(/^"+|"+$/g, '');
-    if (line) {
-      pushNarratorLine(line);
-      broadcastToProjectors({ type: 'narrator', streamId, line, state: roomSnapshot() });
-    } else {
-      broadcastToProjectors({ type: 'narrator_cancel', streamId });
-    }
-  } catch (err) {
-    console.warn(`[narrator] tick failed: ${err.message}`);
-    broadcastToProjectors({ type: 'narrator_cancel', streamId });
-  } finally {
-    narratorInFlight = false;
-  }
-}
-
-setInterval(runNarratorTick, NARRATOR_INTERVAL_MS);
-
-if (DEMO_MODE) seedDemoMode();
-
-server.listen(PORT, () => {
-  console.log(`[Resona] server listening on :${PORT}`);
-  console.log(`[Resona] Codex model pinned: ${MODEL} (auth: ${isConfigured() ? 'ready' : 'MISSING — run `codex login`'})`);
-  console.log(`[Resona] demo mode: ${DEMO_MODE ? 'ON (seeded)' : 'off'}`);
-});

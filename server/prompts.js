@@ -65,31 +65,6 @@ Return ONLY this JSON shape:
   "whenToWorry": string (one sentence, what specific sign or threshold should make them seek medical attention)
 }`;
 
-export const GP_LETTER_SYSTEM = `You are a UK junior doctor drafting a referral-style letter to a general practitioner. The patient just completed a phone-based acoustic-spirometry screening at a public event. This is NOT a clinical spirometry assessment. Write accordingly.
-
-You will be given the patient's demographics, the phone-derived FEV1/FVC/PEF with percent-predicted, the reference equation used, any caveats (e.g., ethnicity fallback), and an atsFlags array of effort-quality flags. Possible atsFlags values: "peak_late" (peak did not arrive in the first moments of the blow), "short_exhalation" (exhalation ended early, under ATS 6-second recommendation).
-
-Write the letter in this UK format:
-- Greeting: "Dear GP,"
-- First paragraph: introduce the patient (first name if given, otherwise "This individual"), their age and sex, and the context, phone-based acoustic spirometry at [event-style] public screening.
-- Second paragraph: list the measurements as a structured block, each line: "FEV1: X.XX L (XX% predicted)", same for FVC and PEF, plus the FEV1/FVC ratio. Use the EXACT numbers you are given.
-- Third paragraph: brief clinical interpretation ONLY at a screening level. If all three percents are 80-120%, say results appear within the expected range for their demographics. If any is under 80%, flag it specifically and recommend formal office spirometry for verification. If over 120%, note the possibility of a strong blow artefact.
-- Fourth paragraph: a SHORT list (max 4) of suggested follow-up questions the GP might ask, examples: history of asthma or COPD, smoking status, recent respiratory infection, occupational exposures. Format as a bulleted list using "- ".
-- Fifth paragraph: explicit caveat that this is a phone-based acoustic screening, not clinical-grade spirometry. Reference equations were Hankinson NHANES III. If the ethnicity fallback flag is true, include one line that NHANES III does not cover the patient's population and percent-predicted is indicative only. If atsFlags is non-empty, add one line noting the effort-quality flag ("peak flow arrived late" / "exhalation ended under the ATS 6-second recommendation") and that the numbers should be interpreted alongside that.
-- Sign-off: "Kind regards, Resona (on behalf of [patient name or 'the patient'])"
-
-Rules:
-- Do NOT invent symptoms, history, or numbers. Use only what you are given.
-- Keep the letter tight, the whole thing should be under 300 words.
-- British English spelling (haemoglobin, colour, etc., not that any of those appear here, but the spirit).
-- Do not use em dashes.
-- Output plain text with newlines, no markdown.
-
-Return ONLY this JSON shape:
-{
-  "letter": string (the full multi-paragraph letter text with \\n between paragraphs)
-}`;
-
 export const NEURO_REPORT_SYSTEM = `You are the Neuro-screen report writer for Resona. You explain a user's stillness + gait measurements in plain English with concrete, realistic actions for office workers. You are NOT a doctor. Never diagnose. This is workplace wellness screening, not clinical neurology.
 
 You will be given:
@@ -129,7 +104,6 @@ export function buildNeuroReportUserMessage({ tremor, gait, demographics }) {
       name: demographics?.name || null,
       ageYears: demographics?.ageYears ?? null,
       sex: demographics?.sex ?? null,
-      teamCode: demographics?.teamCode ?? null,
     },
     tremor: tremor
       ? {
@@ -199,7 +173,6 @@ export function buildHeartReportUserMessage({ heart, demographics }) {
       ageYears: demographics?.ageYears ?? null,
       sex: demographics?.sex ?? null,
       ethnicity: demographics?.ethnicity ?? null,
-      teamCode: demographics?.teamCode ?? null,
     },
     heart: heart
       ? {
@@ -215,40 +188,6 @@ export function buildHeartReportUserMessage({ heart, demographics }) {
           ageNote: heart.ageNote ?? null,
         }
       : null,
-  });
-}
-
-export const NARRATOR_SYSTEM = `You are the projector NARRATOR for Resona at the Watcha Global AI Hackathon 2026 live pitch in London. A crowd of 100+ is simultaneously blowing into their phones. A giant screen shows the room's combined lung capacity filling a progress bar toward a co-op goal.
-
-You will receive a JSON snapshot of the current room state every few seconds:
-- N: participants so far
-- totalLiters: sum of all FVC so far
-- goalLiters: dynamic goal
-- progress: 0 to 1 (totalLiters / goalLiters)
-- meanPct: mean FEV1 percent-predicted across the room
-- flaggedCount: participants flagged (FEV1 < 80% predicted)
-- newestBlowPct: percent predicted of the most recent blow (may be null)
-
-Write ONE sentence, 10-20 words, in the voice of a sports commentator or a confident stadium announcer. Match energy to progress:
-- progress 0-0.25: build anticipation ("the room is finding its rhythm", "first lungs on the board")
-- progress 0.25-0.65: build momentum, call out numbers, encourage others to blow
-- progress 0.65-0.95: suspense, mention how close the room is
-- progress >= 1.0: celebrate explicitly, the room BEAT the goal
-- if flaggedCount > 0, occasionally mention the value of screening
-
-Vary the sentence every call. Do not repeat exact phrasing. Do not give medical advice. Do not use em dashes. Do not name individuals.
-
-Return ONLY the single sentence as plain text. No JSON, no quotes, no markdown, no preamble.`;
-
-export function buildNarratorUserMessage(state) {
-  return JSON.stringify({
-    N: state.participantCount,
-    totalLiters: round(state.totalLiters, 1),
-    goalLiters: round(state.goalLiters, 1),
-    progress: round(Math.min(1.5, state.totalLiters / Math.max(1, state.goalLiters)), 2),
-    meanPct: state.meanPercentPredicted != null ? Math.round(state.meanPercentPredicted) : null,
-    flaggedCount: state.flaggedCount,
-    newestBlowPct: state.newestBlowPct != null ? Math.round(state.newestBlowPct) : null,
   });
 }
 
@@ -303,39 +242,6 @@ export function buildPersonalReportUserMessage({ estimate, demographics, atsFlag
       ethnicityDirectMatch: Boolean(estimate.ethnicityDirectMatch ?? true),
     },
     atsFlags: Array.isArray(atsFlags) ? atsFlags : [],
-  });
-}
-
-export function buildGpLetterUserMessage({ estimate, demographics, atsFlags = [] }) {
-  return JSON.stringify({
-    patient: {
-      name: demographics.name || null,
-      ageYears: demographics.ageYears,
-      sex: demographics.sex,
-      heightCm: demographics.heightCm,
-      ethnicity: demographics.ethnicity,
-    },
-    measurements: {
-      fev1_L: round(estimate.fev1, 2),
-      fvc_L: round(estimate.fvc, 2),
-      pef_Lps: round(estimate.pef, 2),
-      fev1_fvc_ratio: round(estimate.fev1FvcRatio, 2),
-    },
-    percent_predicted: {
-      fev1: Math.round(estimate.percentPredicted.fev1),
-      fvc: Math.round(estimate.percentPredicted.fvc),
-      pef: Math.round(estimate.percentPredicted.pef),
-    },
-    reference: {
-      source: estimate.referenceStatus,
-      ethnicityDirectMatch: Boolean(estimate.ethnicityDirectMatch ?? true),
-    },
-    atsFlags: Array.isArray(atsFlags) ? atsFlags : [],
-    context: {
-      eventType: 'Watcha Global AI Hackathon 2026 live public screening',
-      screeningTool: 'Resona, phone-based acoustic spirometry',
-      clinicalGrade: false,
-    },
   });
 }
 

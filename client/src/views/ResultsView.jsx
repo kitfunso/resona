@@ -320,85 +320,6 @@ const css = `
     margin-bottom: 0.2rem;
   }
 
-  /* ========= GP letter card ========= */
-  .rv-letter {
-    background:
-      radial-gradient(ellipse at bottom right, rgba(201, 169, 110, 0.05), transparent 60%),
-      var(--ink-2);
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-lg);
-    padding: var(--s-4);
-    display: flex; flex-direction: column; gap: var(--s-3);
-  }
-  .rv-letter details summary {
-    list-style: none;
-    cursor: pointer;
-    display: flex; justify-content: space-between; align-items: baseline;
-    gap: var(--s-2);
-  }
-  .rv-letter details summary::-webkit-details-marker { display: none; }
-  .rv-letter summary .lab {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.24em;
-    text-transform: uppercase;
-    color: var(--brass);
-  }
-  .rv-letter summary .title {
-    font-family: var(--font-display);
-    
-    font-size: 1.35rem;
-    color: var(--bone-0);
-    line-height: 1;
-  }
-  .rv-letter summary .chev {
-    font-family: var(--font-body);
-    font-size: 0.75rem;
-    color: var(--bone-3);
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    transition: transform 0.25s;
-  }
-  .rv-letter details[open] summary .chev { transform: rotate(180deg); }
-  .rv-letter-body {
-    margin-top: var(--s-3);
-    padding: var(--s-4);
-    background: var(--ink-0);
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-sm);
-    white-space: pre-wrap;
-    font-family: var(--font-mono);
-    font-size: 0.82rem;
-    line-height: 1.65;
-    color: var(--bone-1);
-    max-height: 48vh;
-    overflow-y: auto;
-  }
-  .rv-copy {
-    appearance: none;
-    width: 100%;
-    padding: 1.1rem var(--s-4);
-    border: none;
-    border-radius: var(--r-sm);
-    background: var(--bone-0);
-    color: var(--ink-0);
-    font-family: var(--font-body);
-    font-size: 0.78rem;
-    font-weight: 700;
-    letter-spacing: 0.28em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: box-shadow 0.2s, transform 0.1s;
-    display: flex; align-items: center; justify-content: center;
-    gap: var(--s-2);
-  }
-  .rv-copy:hover { box-shadow: var(--shadow-brass); }
-  .rv-copy:active { transform: scale(0.99); }
-  .rv-copy[data-copied="true"] {
-    background: var(--pulse);
-    color: var(--ink-0);
-  }
-
   /* ========= Secondary actions row ========= */
   .rv-neuro-cta {
     appearance: none;
@@ -549,19 +470,7 @@ export default function ResultsView({ estimate, analysis, onRetry, onStartOver, 
   const pp = estimate.percentPredicted.fev1;
   const level = pp < 80 ? 'weak' : pp > 115 ? 'strong' : 'normal';
 
-  const [copied, setCopied] = useState(false);
   const [caseIdVal] = useState(caseId);
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(analysis.gpLetter);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
-    } catch (err) {
-      console.error('clipboard write failed', err);
-      alert('Copy failed. You can select the letter text and copy manually.');
-    }
-  }
 
   const fmtL = (x) => x.toFixed(2);
   const fmtLs = (x) => x.toFixed(2);
@@ -662,32 +571,6 @@ export default function ResultsView({ estimate, analysis, onRetry, onStartOver, 
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {/* GP Letter */}
-      {analysis?.gpLetter && (
-        <div className="rv-letter">
-          <details>
-            <summary>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span className="lab">Referral letter</span>
-                <span className="title">For your GP</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {analysis.gpLetterSource && (
-                  <span className="rv-source-chip" data-src={analysis.gpLetterSource}>
-                    {analysis.gpLetterSource === 'ai' ? '● GLM 5.1' : '○ template'}
-                  </span>
-                )}
-                <span className="chev">Open ▾</span>
-              </div>
-            </summary>
-            <div className="rv-letter-body">{analysis.gpLetter}</div>
-          </details>
-          <button className="rv-copy" data-copied={copied} onClick={handleCopy}>
-            {copied ? '✓ Copied' : 'Copy letter to clipboard'}
-          </button>
         </div>
       )}
 

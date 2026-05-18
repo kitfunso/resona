@@ -10,6 +10,7 @@ async function postJson(path, body, { retries = 1, timeoutMs = 35000 } = {}) {
     try {
       const res = await fetch(path, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -36,9 +37,7 @@ async function postJson(path, body, { retries = 1, timeoutMs = 35000 } = {}) {
   throw lastErr ?? new Error('postJson failed');
 }
 
-// Stable per-device session id for leaderboard deduplication. Re-blows from
-// the same phone update that device's best FVC instead of inflating the team
-// total. Generated once, persisted via localStorage.
+// Stable per-device id, generated once and persisted in localStorage.
 const SESSION_KEY = 'resona:sessionId';
 function newSessionId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();

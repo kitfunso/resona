@@ -7,14 +7,18 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test:glm": "node test-glm.js"
+    "test:llm": "node check-llm.js",
+    "test": "node --test --test-concurrency=1"
   },
   "dependencies": {
-    "@mariozechner/pi-ai": "^0.68.0",
-    "better-sqlite3": "12.9.0",
+    "bcryptjs": "2.4.3",
     "cors": "2.8.5",
     "dotenv": "16.4.7",
     "express": "4.21.2",
-    "ws": "8.18.0"
+    "express-rate-limit": "7.4.1",
+    "jose": "5.9.6",
+    "openai": "4.77.0",
+    "pg": "8.13.1",
+    "pg-connection-string": "^2.7.0"
   }
 }

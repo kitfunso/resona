@@ -171,6 +171,40 @@ Pre-demo hardening from the post-merge review of Module 03. All four landed on `
 - [x] MediaPipe wasm served locally via inline vite plugin (dev middleware + build-time copy from `node_modules/@mediapipe/tasks-vision/wasm/`). No jsdelivr CDN dependency at demo time.
 - [x] HTTP/WS smoke test passed: `/api/analyze-heart` good / poor / unknown branches behave; mean HR gating verified (poor excluded); WS heart frames carry correct grade + teamCode.
 
+### Phase A: Demo teardown, COMPLETE (2026-05-13) ✅
+
+Removed in preparation for the corporate-product pivot:
+
+- [x] ProjectorView + `/projector` route + WebSocket server + `broadcastToProjectors`.
+- [x] Room aggregate state, `roomSnapshot`, `recordBlow`/`recordHeart` tracking, narrator loop, `NARRATOR_SYSTEM` prompt.
+- [x] `teamCode` threading from every analyze endpoint and client view.
+- [x] `DEMO_MODE` env flag + `seedDemoMode` function.
+- [x] GP Letter feature (prompt, server generation, ResultsView card).
+- [x] `/api/admin/reset` endpoint.
+- [x] `ws` dependency dropped from `server/package.json`.
+
+Codebase is now just the three participant-side biosignal flows + LLM-backed personal reports. Ready for corporate foundations (Phase B).
+
+### Phase B: Corporate foundations, COMPLETE (2026-05-13) ✅
+
+Backbone for a real product. Demo-flavoured paths removed in Phase A; Phase B replaces them with a credentialed, multi-tenant backend.
+
+- [x] OPENAI_API_KEY replaces `~/.codex/auth.json` reading. `server/glm-service.js` → `server/llm.js`. Default model `gpt-4o` (override via `OPENAI_MODEL`).
+- [x] Postgres + `pg` 8.x + migration runner (`server/db.js` + `server/migrations/`). `better-sqlite3` dropped.
+- [x] Schema: `orgs`, `users` (org_id FK, globally unique case-insensitive email), `check_ins` (org_id FK, kind ∈ {breath, motion, heart}, jsonb payload, indexed by user+created_at and org+created_at), `auth_codes`.
+- [x] Magic-code auth: 6-digit code, 10-min TTL, bcrypt-hashed at rest, single-use. `/api/auth/request` is idempotent and leaks no info about which emails exist. `/api/auth/verify` issues an HS256 JWT in an httpOnly cookie.
+- [x] Auth middleware + `/api/me` GET/PATCH for profile.
+- [x] Admin bootstrap endpoints (`/api/admin/orgs`, `/api/admin/users`) gated by `ADMIN_TOKEN` env.
+- [x] All three analyze endpoints (blow / neuro / heart) require a session, source demographics from the authenticated user, and persist results to `check_ins`.
+- [x] Client: `LoginView` + session bootstrap in `App.jsx` + `client/src/auth.js`. `OnboardingView` renamed to `ProfileSetupView` and gated to first-time-only.
+- [x] Security hardening: rate limits (auth + admin), `LLM_TRACE` gate + PII redactor, timing-safe `ADMIN_TOKEN` compare with boot length check, CORS origin allowlist, `auth_codes` GC, `dob` real-date validator, `sex`/`ethnicity` server-side allowlists.
+
+What's intentionally NOT in this phase: admin/HR dashboard, time-series trend UI, anonymized team aggregates, SSO, real email sender (Resend / Mailgun / SES integration), production deploy (Fly / Render config), DPA / privacy policy text. Those land in the next plan.
+
+### Next plan (TBD)
+
+Admin-facing surface: who reads the aggregate data, what they see, how identity is protected. This needs product decisions (run /office-hours first).
+
 ## Known issues
 
 - iOS Safari requires a direct user tap to unlock `AudioContext`, Phase 1 must handle this explicitly.

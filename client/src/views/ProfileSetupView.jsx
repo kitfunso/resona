@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
-import { ETHNICITY_OPTIONS } from '../../../shared/reference-equations.js';
+import { patchMe } from '../auth.js';
+
+const ETHNICITY_OPTIONS = [
+  { value: 'Caucasian',       label: 'Caucasian / White' },
+  { value: 'African',         label: 'African' },
+  { value: 'African-American',label: 'African American' },
+  { value: 'Hispanic',        label: 'Hispanic or Latino' },
+  { value: 'East Asian',      label: 'East Asian (Chinese, Japanese, Korean)' },
+  { value: 'South Asian',     label: 'South Asian (Indian, Pakistani, Bangladeshi, Sri Lankan)' },
+  { value: 'Southeast Asian', label: 'Southeast Asian' },
+  { value: 'Middle Eastern',  label: 'Middle Eastern' },
+  { value: 'Indigenous',      label: 'Indigenous' },
+  { value: 'Mixed',           label: 'Mixed' },
+  { value: 'Other',           label: 'Other' },
+];
 
 const css = `
   .ob-card {
@@ -39,7 +53,7 @@ const css = `
   }
   .ob-title {
     font-family: var(--font-display);
-    
+
     font-weight: 400;
     font-size: 1.85rem;
     line-height: 1;
@@ -147,25 +161,6 @@ const css = `
     box-shadow: 0 0 0 3px rgba(201, 169, 110, 0.22);
   }
 
-  .ob-consent {
-    display: flex; align-items: flex-start; gap: var(--s-3);
-    font-size: 0.8rem;
-    line-height: 1.55;
-    color: var(--bone-2);
-    padding: var(--s-3);
-    border: 1px solid var(--hairline);
-    border-radius: var(--r-sm);
-    background: var(--ink-0);
-    cursor: pointer;
-  }
-  .ob-consent input {
-    margin-top: 0.15rem;
-    width: 1.1rem; height: 1.1rem;
-    accent-color: var(--brass);
-    flex-shrink: 0;
-  }
-  .ob-consent strong { color: var(--bone-0); font-weight: 600; }
-
   .ob-submit {
     appearance: none;
     border: none;
@@ -187,9 +182,10 @@ const css = `
   }
   .ob-submit:hover { box-shadow: var(--shadow-brass); }
   .ob-submit:active { transform: scale(0.99); }
+  .ob-submit:disabled { opacity: 0.6; cursor: not-allowed; }
   .ob-submit .arrow {
     font-family: var(--font-display);
-    
+
     font-size: 1.2rem;
     letter-spacing: 0;
     text-transform: none;
@@ -217,46 +213,52 @@ function useCss() {
   }
 }
 
-function validate({ ageYears, sex, heightCm, ethnicity, consent }) {
+function validate({ ageYears, sex, heightCm, ethnicity }) {
   if (!sex) return 'Please pick male or female for sex at birth.';
   if (!Number.isFinite(ageYears) || ageYears < 20 || ageYears > 80) return 'Age must be between 20 and 80.';
   if (!Number.isFinite(heightCm) || heightCm < 100 || heightCm > 230) return 'Height must be between 100 and 230 cm.';
   if (!ethnicity) return 'Please pick an ethnicity, it affects the reference values.';
-  if (!consent) return 'Please tick the consent box so we know you understand this is a screening tool.';
   return null;
 }
 
-export default function OnboardingView({ onSubmit }) {
+export default function ProfileSetupView({ initial, onProfileSaved }) {
   useCss();
-  const [name, setName] = useState('');
-  const [teamCode, setTeamCode] = useState('');
+  const [name, setName] = useState(initial?.name ?? '');
   const [age, setAge] = useState('');
-  const [height, setHeight] = useState('');
-  const [sex, setSex] = useState('');
-  const [ethnicity, setEthnicity] = useState('');
-  const [consent, setConsent] = useState(false);
-  const [err, setErr] = useState(null);
+  const [height, setHeight] = useState(initial?.height_cm ? String(initial.height_cm) : '');
+  const [sex, setSex] = useState(initial?.sex ?? '');
+  const [ethnicity, setEthnicity] = useState(initial?.ethnicity ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     const ageYears = Number(age);
     const heightCm = Number(height);
-    const problem = validate({ ageYears, sex, heightCm, ethnicity, consent });
+    const problem = validate({ ageYears, sex, heightCm, ethnicity });
     if (problem) {
-      setErr(problem);
+      setError(problem);
       return;
     }
-    setErr(null);
-    const cleanTeam = teamCode.trim().toUpperCase().slice(0, 6) || null;
-    onSubmit({
-      name: name.trim() || null,
-      teamCode: cleanTeam,
-      ageYears,
-      heightCm,
-      sex,
-      ethnicity,
-      consent: true,
-    });
+    setError('');
+    setBusy(true);
+    try {
+      const currentYear = new Date().getFullYear();
+      const birthYear = currentYear - ageYears;
+      const dob = `${birthYear}-01-01`;
+      const updated = await patchMe({
+        name: name.trim() || null,
+        dob,
+        heightCm,
+        sex,
+        ethnicity,
+      });
+      onProfileSaved(updated);
+    } catch (err) {
+      setError('Could not save profile. Try again.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -284,22 +286,6 @@ export default function OnboardingView({ onSubmit }) {
             placeholder="First name or leave blank"
             autoComplete="given-name"
             maxLength={40}
-          />
-        </div>
-
-        <div className="ob-field ob-field-full">
-          <label className="ob-label" htmlFor="ob-team">
-            <span>Team code</span><span className="opt">Optional · for leaderboard</span>
-          </label>
-          <input
-            id="ob-team"
-            className="ob-input mono"
-            type="text"
-            value={teamCode}
-            onChange={(e) => setTeamCode(e.target.value)}
-            placeholder="ENG · MKTG · SALES"
-            maxLength={6}
-            style={{ textTransform: 'uppercase' }}
           />
         </div>
 
@@ -360,22 +346,10 @@ export default function OnboardingView({ onSubmit }) {
         </div>
       </div>
 
-      <label className="ob-consent">
-        <input
-          type="checkbox"
-          checked={consent}
-          onChange={(e) => setConsent(e.target.checked)}
-        />
-        <span>
-          I understand this is a <strong>screening tool, not a medical diagnosis</strong>. Results are
-          indicative only. No audio is uploaded to any server.
-        </span>
-      </label>
+      {error && <div className="ob-err">{error}</div>}
 
-      {err && <div className="ob-err">{err}</div>}
-
-      <button className="ob-submit" type="submit">
-        <span>Ready to blow</span>
+      <button className="ob-submit" type="submit" disabled={busy}>
+        <span>{busy ? 'Saving…' : 'Save profile'}</span>
         <span className="arrow">→</span>
       </button>
     </form>
