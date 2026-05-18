@@ -34,6 +34,18 @@ const TRACE_ENABLED = process.env.LLM_TRACE === '1';
 const PII_KEYS = new Set(['dob', 'height_cm', 'heightCm', 'sex', 'ethnicity', 'name', 'email']);
 
 function redact(value) {
+  // Prompt builders JSON.stringify their payloads, so message `content` is a
+  // string. Parse it, redact the structure, and re-stringify — otherwise PII
+  // inside the string would pass through untouched.
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed !== null && typeof parsed === 'object') {
+        return JSON.stringify(redact(parsed));
+      }
+    } catch {}
+    return value;
+  }
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map(redact);
   const out = {};
