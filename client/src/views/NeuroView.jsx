@@ -703,6 +703,7 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
     try {
       const res = await fetch('/api/analyze-neuro', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tremor: currentTremor,

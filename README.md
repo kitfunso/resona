@@ -4,9 +4,9 @@
 
 A phone-based 2-minute team wellness check-in. Three biosignal modalities, all processed in the browser.
 
-Employees scan a QR code, spend two minutes on three biosignal checks, and land on the live team projector. Every valid check-in fills a shared goal bar with AI-narrated commentary.
+Employees sign in with their work email, spend two minutes on three biosignal checks, and get a personalised report. Check-ins are saved to their account so trends can build over time.
 
-Resona started as a prototype for the Watcha Global AI Hackathon (London, 18-19 April 2026). The hackathon is over; the codebase is now in transition toward a real product. See `scratchpad.md` for current state.
+Resona started as a prototype for the Watcha Global AI Hackathon (London, 18-19 April 2026) and is now being built out as a corporate wellness product. See `scratchpad.md` for current state.
 
 ## What it measures
 
@@ -63,7 +63,8 @@ npm run dev:client
 
 ## Scripts
 
-- `npm run test:glm`, standalone Codex connectivity check
+- `npm run test:llm`, standalone OpenAI connectivity check
+- `npm test`, server test suite (db, schema, email, auth, HTTP integration)
 - `npm run dev`, backend + frontend in parallel
 - `npm run dev:server`, backend only
 - `npm run dev:client`, frontend only
@@ -73,8 +74,8 @@ npm run dev:client
 
 ```
 resona/
-├── server/       Express + WebSocket + SQLite (room aggregate state, Codex calls, prompts)
-├── client/       React + Vite (participant, results, neuro, heart, projector)
+├── server/       Express + Postgres (migrations, magic-code auth, OpenAI calls, prompts)
+├── client/       React + Vite (login, profile setup, participant, results, neuro, heart)
 │   └── src/video/   POS, features, regression, recorder, MediaPipe face detect
 ├── shared/       Hankinson NHANES III reference equations
 ├── deck/         5-slide editorial pitch deck (static HTML)
@@ -85,4 +86,4 @@ resona/
 
 ## Status
 
-Hackathon prototype, three biosignal pipelines shipped (Breath, Motion, Heart). Demo-day surface (projector view, leaderboard, narrator, GP Letter, DEMO_MODE) has been removed. The codebase is mid-transition toward a corporate product. Next: Postgres + auth + multi-tenant org model (see `docs/superpowers/plans/2026-05-13-corporate-foundations.md`).
+Corporate foundations shipped: Postgres persistence, passwordless magic-code auth with JWT sessions, a multi-tenant org model, and per-user check-in history. The three biosignal pipelines (Breath, Motion, Heart) are intact; the demo-day surface (projector, leaderboard, narrator, GP Letter, DEMO_MODE) has been removed. See `docs/superpowers/plans/2026-05-13-corporate-foundations.md`. Next: the admin/HR-facing dashboard.

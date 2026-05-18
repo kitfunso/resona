@@ -512,6 +512,19 @@ app.post('/api/analyze-blow', requireAuth, async (req, res) => {
   if (!features || !estimate) {
     return res.status(400).json({ error: 'missing features or estimate' });
   }
+  // Validate the estimate shape up front: classifierFallback and
+  // personalReportFallback dereference these fields, and a malformed body
+  // would otherwise throw deep in a handler and crash the process.
+  if (
+    !Number.isFinite(estimate.fev1) ||
+    !Number.isFinite(estimate.fvc) ||
+    !Number.isFinite(estimate.pef) ||
+    !Number.isFinite(estimate.effortScore) ||
+    !estimate.percentPredicted ||
+    !Number.isFinite(estimate.percentPredicted.fev1)
+  ) {
+    return res.status(400).json({ error: 'malformed estimate' });
+  }
 
   const classification = classifierFallback({ features, estimate });
   if (!classification?.valid) {
