@@ -3,10 +3,11 @@ import { unlockAudio, acquireMicPermission, recordBlow } from '../audio/recorder
 import { extractFeatures } from '../audio/features.js';
 import { estimateSpirometry } from '../audio/regression.js';
 import { analyzeBlow } from '../api.js';
-import OnboardingView from './OnboardingView.jsx';
+import ProfileSetupView from './ProfileSetupView.jsx';
 import ResultsView, { CoachingCard } from './ResultsView.jsx';
 import NeuroView from './NeuroView.jsx';
 import HeartView from './HeartView.jsx';
+import { logout } from '../auth.js';
 
 const DURATION_MS = 6000;
 
@@ -39,7 +40,7 @@ const css = `
   }
   .r-chrome-brand .codename {
     font-family: var(--font-display);
-    
+
     font-size: 1.15rem;
     color: var(--bone-1);
     line-height: 1;
@@ -71,7 +72,7 @@ const css = `
   }
   .r-hero-title {
     font-family: var(--font-display);
-    
+
     font-weight: 400;
     font-size: clamp(2.4rem, 9vw, 3.6rem);
     line-height: 0.95;
@@ -81,7 +82,7 @@ const css = `
   }
   .r-hero-tagline {
     font-family: var(--font-display);
-    
+
     font-weight: 400;
     font-size: clamp(0.95rem, 2.4vw, 1.2rem);
     line-height: 1.25;
@@ -195,7 +196,7 @@ const css = `
   }
   .r-blow .prompt {
     font-family: var(--font-display);
-    
+
     font-size: clamp(1.6rem, 5vw, 2rem);
     font-weight: 400;
     letter-spacing: -0.01em;
@@ -204,7 +205,7 @@ const css = `
 
   .r-countdown {
     font-family: var(--font-display);
-    
+
     font-weight: 400;
     font-size: clamp(5rem, 22vw, 8rem);
     line-height: 0.9;
@@ -334,7 +335,7 @@ const css = `
   }
   .r-analyzing-label {
     font-family: var(--font-display);
-    
+
     font-size: var(--t-h3);
     color: var(--bone-1);
   }
@@ -478,26 +479,10 @@ function buildLocalFallback(estimate, demographics, err) {
     source: 'fallback',
   };
 
-  const name = demographics?.name?.trim() || 'This individual';
-  const gpLetter =
-    `Dear GP,\n\n` +
-    `${name} (${demographics?.ageYears ?? '?'}, ${demographics?.sex ?? '?'}, ${demographics?.heightCm ?? '?'} cm) ` +
-    `completed a phone-based acoustic spirometry screening at a public event.\n\n` +
-    `FEV1: ${estimate.fev1.toFixed(2)} L (${Math.round(estimate.percentPredicted.fev1)}% predicted)\n` +
-    `FVC: ${estimate.fvc.toFixed(2)} L (${Math.round(estimate.percentPredicted.fvc)}% predicted)\n` +
-    `PEF: ${estimate.pef.toFixed(2)} L/s (${Math.round(estimate.percentPredicted.pef)}% predicted)\n` +
-    `FEV1/FVC ratio: ${estimate.fev1FvcRatio.toFixed(2)}\n\n` +
-    `These values are derived from smartphone microphone audio using the Hankinson NHANES III reference ` +
-    `equations. This is a screening tool, not clinical spirometry. Formal office spirometry is recommended ` +
-    `if any concern.\n\n` +
-    `Kind regards,\nResona (acoustic screening tool)`;
-
   return {
     valid: true,
     atsFlags: [],
     personalReport,
-    gpLetter,
-    gpLetterSource: 'fallback',
     offline: true,
     reason: err?.message || 'network',
   };
@@ -541,21 +526,36 @@ function InstrumentTickRing() {
   );
 }
 
-export default function ParticipantView() {
+// Derive a demographics object from the stored user profile.
+function demographicsFromUser(user) {
+  const ageYears = user.dob
+    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
+    : null;
+  return {
+    ageYears,
+    heightCm: user.height_cm,
+    sex: user.sex,
+    ethnicity: user.ethnicity,
+  };
+}
+
+export default function ParticipantView({ user, onSignOut }) {
   useCss();
-  const [stage, setStage] = useState('onboarding');
+  const [currentUser, setCurrentUser] = useState(user);
+  const [stage, setStage] = useState('blow');
   const [countdown, setCountdown] = useState(0);
   const [level, setLevel] = useState(0);
   const [estimate, setEstimate] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [coachingMessage, setCoachingMessage] = useState(null);
   const [error, setError] = useState(null);
-  const demographicsRef = useRef(null);
 
-  function handleOnboardSubmit(demographics) {
-    demographicsRef.current = demographics;
-    setStage('blow');
+  const profileComplete = !!(currentUser?.dob && currentUser?.height_cm && currentUser?.sex && currentUser?.ethnicity);
+  if (!profileComplete) {
+    return <ProfileSetupView initial={currentUser} onProfileSaved={setCurrentUser} />;
   }
+
+  const demographics = demographicsFromUser(currentUser);
 
   async function handleArm() {
     setError(null);
@@ -594,7 +594,7 @@ export default function ParticipantView() {
       setCountdown(0);
 
       const features = extractFeatures(pcm, sampleRate);
-      const localEstimate = estimateSpirometry({ features, demographics: demographicsRef.current });
+      const localEstimate = estimateSpirometry({ features, demographics });
       setEstimate(localEstimate);
 
       let apiResult;
@@ -602,11 +602,11 @@ export default function ParticipantView() {
         apiResult = await analyzeBlow({
           features,
           estimate: localEstimate,
-          demographics: demographicsRef.current,
+          demographics,
         });
       } catch (apiErr) {
         console.error('analyze-blow failed, using client-side fallback', apiErr);
-        apiResult = buildLocalFallback(localEstimate, demographicsRef.current, apiErr);
+        apiResult = buildLocalFallback(localEstimate, demographics, apiErr);
       }
 
       if (apiResult.valid === false) {
@@ -632,10 +632,12 @@ export default function ParticipantView() {
     setStage('blow');
   }
 
-  function resetToOnboarding() {
-    demographicsRef.current = null;
-    resetToBlow();
-    setStage('onboarding');
+  async function handleSignOut() {
+    try {
+      await logout();
+    } finally {
+      onSignOut();
+    }
   }
 
   const recording = stage === 'recording';
@@ -655,24 +657,21 @@ export default function ParticipantView() {
           </span>
         </div>
         <div className="r-chrome-disclaimer">Screening tool<br />not a diagnosis</div>
+        <button className="r-back" style={{ marginTop: 0 }} onClick={handleSignOut}>Sign out</button>
       </header>
 
-      {(stage === 'blow' || stage === 'armed' || stage === 'recording' || stage === 'analyzing' || stage === 'onboarding') && (
+      {(stage === 'blow' || stage === 'armed' || stage === 'recording' || stage === 'analyzing') && (
         <div className="r-hero">
           <h1 className="r-hero-title">Resona</h1>
           <p className="r-hero-tagline">
             Every body has <span className="brass">a rhythm.</span>
           </p>
-          {stage !== 'onboarding' && (
-            <div className="r-hero-module">
-              <span className="dot" />
-              <span>Module 01 · Breath</span>
-            </div>
-          )}
+          <div className="r-hero-module">
+            <span className="dot" />
+            <span>Module 01 · Breath</span>
+          </div>
         </div>
       )}
-
-      {stage === 'onboarding' && <OnboardingView onSubmit={handleOnboardSubmit} />}
 
       {(stage === 'blow' || stage === 'armed' || stage === 'recording') && (
         <>
@@ -728,12 +727,6 @@ export default function ParticipantView() {
               </div>
             </div>
           )}
-
-          {(stage === 'blow' || stage === 'armed') && (
-            <button className="r-back" onClick={resetToOnboarding}>
-              ← Edit my details
-            </button>
-          )}
         </>
       )}
 
@@ -751,7 +744,7 @@ export default function ParticipantView() {
         <CoachingCard
           message={coachingMessage}
           onRetry={resetToBlow}
-          onStartOver={resetToOnboarding}
+          onStartOver={resetToBlow}
         />
       )}
 
@@ -760,7 +753,7 @@ export default function ParticipantView() {
           estimate={estimate}
           analysis={analysis}
           onRetry={resetToBlow}
-          onStartOver={resetToOnboarding}
+          onStartOver={resetToBlow}
           onNeuro={() => setStage('neuro')}
           onHeart={() => setStage('heart')}
         />
@@ -768,7 +761,7 @@ export default function ParticipantView() {
 
       {stage === 'neuro' && (
         <NeuroView
-          demographics={demographicsRef.current}
+          demographics={demographics}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
           onHeart={() => setStage('heart')}
         />
@@ -776,7 +769,7 @@ export default function ParticipantView() {
 
       {stage === 'heart' && (
         <HeartView
-          demographics={demographicsRef.current}
+          demographics={demographics}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
         />
       )}
@@ -785,7 +778,6 @@ export default function ParticipantView() {
         <>
           <p className="r-error">Something went wrong: {error}</p>
           <button className="r-back" onClick={resetToBlow}>← Try again</button>
-          <button className="r-back" onClick={resetToOnboarding}>← Start over</button>
         </>
       )}
 
