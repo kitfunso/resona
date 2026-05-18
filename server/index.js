@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import { WebSocketServer } from 'ws';
 import http from 'node:http';
 import Database from 'better-sqlite3';
 import path from 'node:path';
@@ -611,25 +610,13 @@ app.post('/api/analyze-heart', async (req, res) => {
     ? demographics.teamCode.toUpperCase().slice(0, 6)
     : null;
 
-  const { isFirstHeart } = recordHeart({
+  recordHeart({
     sessionId,
     hrBpm: heart.hrBpm,
     hrvRmssdMs: heart.hrvRmssdMs ?? null,
     sdnnMs: heart.sdnnMs ?? null,
     quality: heart.quality ?? { grade: 'unknown', reasons: [] },
     teamCode,
-  });
-
-  broadcastToProjectors({
-    type: 'heart',
-    heart: {
-      hrBpm: Math.round(heart.hrBpm),
-      hrvRmssdMs: Number.isFinite(heart.hrvRmssdMs) ? Number(heart.hrvRmssdMs.toFixed(1)) : null,
-      grade: heart.quality?.grade ?? 'unknown',
-      isFirstHeart,
-      teamCode,
-    },
-    state: roomSnapshot(),
   });
 
   if (heart.quality?.grade === 'poor') {
@@ -698,13 +685,11 @@ app.post('/api/analyze-blow', async (req, res) => {
 
   const flags = atsFlags(features);
 
-  // Update room aggregate state + broadcast to projectors BEFORE LLM calls.
-  // That way the projector sees the new total within milliseconds, not 20s later.
   const flagged = estimate.percentPredicted.fev1 < 80;
   const teamCode = typeof demographics.teamCode === 'string' && demographics.teamCode.length > 0
     ? demographics.teamCode.toUpperCase().slice(0, 6)
     : null;
-  const blowResult = recordBlow({
+  recordBlow({
     sessionId,
     fev1: estimate.fev1,
     fvc: estimate.fvc,
@@ -712,19 +697,6 @@ app.post('/api/analyze-blow', async (req, res) => {
     percentPredicted: estimate.percentPredicted.fev1,
     flagged,
     teamCode,
-  });
-  broadcastToProjectors({
-    type: 'blow',
-    blow: {
-      pct: Math.round(estimate.percentPredicted.fev1),
-      fvc: Number(estimate.fvc.toFixed(2)),
-      flagged,
-      teamCode,
-      improvedBest: blowResult.improvedBest,
-      isFirstBlow: blowResult.isFirstBlow,
-      fvcDelta: Number(blowResult.fvcDelta.toFixed(2)),
-    },
-    state: roomSnapshot(),
   });
 
   // LLM calls (sequential + retry + fallback)
@@ -795,48 +767,9 @@ app.post('/api/analyze-blow', async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// WebSocket: projector clients subscribe to room state + narrator lines.
+// HTTP server
 // -----------------------------------------------------------------------------
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
-
-const projectorSockets = new Set();
-
-function broadcastToProjectors(payload) {
-  const msg = JSON.stringify(payload);
-  for (const ws of projectorSockets) {
-    if (ws.readyState === ws.OPEN) {
-      try {
-        ws.send(msg);
-      } catch (err) {
-        console.warn('[ws] send failed:', err.message);
-      }
-    }
-  }
-}
-
-wss.on('connection', (socket) => {
-  socket.isProjector = false;
-  socket.send(JSON.stringify({ type: 'hello', product: 'Resona' }));
-
-  socket.on('message', (raw) => {
-    let msg;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
-    if (msg?.type === 'subscribe' && msg.role === 'projector') {
-      socket.isProjector = true;
-      projectorSockets.add(socket);
-      socket.send(JSON.stringify({ type: 'state', state: roomSnapshot() }));
-    }
-  });
-
-  socket.on('close', () => {
-    projectorSockets.delete(socket);
-  });
-});
 
 // -----------------------------------------------------------------------------
 // NARRATOR loop, fires every 6s while participants exist.
