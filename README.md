@@ -86,4 +86,6 @@ resona/
 
 ## Status
 
-Corporate foundations shipped: Postgres persistence, passwordless magic-code auth with JWT sessions, a multi-tenant org model, and per-user check-in history. The three biosignal pipelines (Breath, Motion, Heart) are intact; the demo-day surface (projector, leaderboard, narrator, GP Letter, DEMO_MODE) has been removed. See `docs/superpowers/plans/2026-05-13-corporate-foundations.md`. Next: the admin/HR-facing dashboard.
+Corporate foundations shipped: Postgres persistence, passwordless magic-code auth with JWT sessions, a multi-tenant org model, and per-user check-in history. The three biosignal pipelines (Breath, Motion, Heart) are intact; the demo-day surface (projector, leaderboard, narrator, GP Letter, DEMO_MODE) has been removed. See `docs/superpowers/plans/2026-05-13-corporate-foundations.md`.
+
+Still ahead before this is a shippable product: the admin/HR-facing dashboard, a hosted backend (HTTPS, secrets, observability), and a written privacy policy + DPA to go with the existing medical-device disclaimer.
