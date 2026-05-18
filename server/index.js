@@ -523,6 +523,72 @@ app.patch('/api/me', requireAuth, async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
+// Admin bootstrap endpoints
+// -----------------------------------------------------------------------------
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+
+function requireAdmin(req, res, next) {
+  if (!ADMIN_TOKEN) return res.status(503).json({ error: 'admin disabled' });
+  const provided = req.headers['x-admin-token'];
+  if (provided !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+  next();
+}
+
+app.post('/api/admin/orgs', requireAdmin, async (req, res) => {
+  const { slug, name, firstUserEmail } = req.body ?? {};
+  if (typeof slug !== 'string' || !/^[a-z0-9-]{2,40}$/.test(slug)) {
+    return res.status(400).json({ error: 'invalid slug (lowercase, digits, hyphens, 2-40 chars)' });
+  }
+  if (typeof name !== 'string' || name.length < 1) {
+    return res.status(400).json({ error: 'invalid name' });
+  }
+  if (typeof firstUserEmail !== 'string' || !firstUserEmail.includes('@')) {
+    return res.status(400).json({ error: 'invalid firstUserEmail' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: orgs } = await client.query(
+      'INSERT INTO orgs (slug, name) VALUES ($1, $2) RETURNING id',
+      [slug, name],
+    );
+    const { rows: users } = await client.query(
+      'INSERT INTO users (org_id, email) VALUES ($1, lower($2)) RETURNING id, email',
+      [orgs[0].id, firstUserEmail],
+    );
+    await client.query('COMMIT');
+    res.json({ org: { id: orgs[0].id, slug, name }, firstUser: users[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') return res.status(409).json({ error: 'slug or email already exists' });
+    console.error('[admin/orgs]', err);
+    res.status(500).json({ error: 'failed' });
+  } finally {
+    client.release();
+  }
+});
+
+app.post('/api/admin/users', requireAdmin, async (req, res) => {
+  const { orgSlug, email } = req.body ?? {};
+  if (typeof orgSlug !== 'string' || typeof email !== 'string' || !email.includes('@')) {
+    return res.status(400).json({ error: 'invalid input' });
+  }
+  const { rows: orgs } = await pool.query('SELECT id FROM orgs WHERE slug = $1', [orgSlug]);
+  if (orgs.length === 0) return res.status(404).json({ error: 'org not found' });
+  try {
+    const { rows } = await pool.query(
+      'INSERT INTO users (org_id, email) VALUES ($1, lower($2)) RETURNING id, email',
+      [orgs[0].id, email],
+    );
+    res.json({ user: rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'email already exists' });
+    console.error('[admin/users]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// -----------------------------------------------------------------------------
 // HTTP server
 // -----------------------------------------------------------------------------
 const server = http.createServer(app);
