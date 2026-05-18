@@ -377,10 +377,14 @@ app.post('/api/analyze-neuro', requireAuth, async (req, res) => {
   }
   report.source = source;
   scrubReport(report);
-  await pool.query(
-    `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'motion', $3::jsonb)`,
-    [req.auth.userId, user.org_id, JSON.stringify({ tremor: req.body.tremor, gait: req.body.gait, neuroReport: report })],
-  );
+  try {
+    await pool.query(
+      `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'motion', $3::jsonb)`,
+      [req.auth.userId, user.org_id, JSON.stringify({ tremor: req.body.tremor, gait: req.body.gait, neuroReport: report })],
+    );
+  } catch (err) {
+    console.error('[analyze-neuro] check_ins persist failed:', err.message);
+  }
   res.json({ ok: true, report });
 });
 
@@ -439,10 +443,14 @@ app.post('/api/analyze-heart', requireAuth, async (req, res) => {
   }
   report.source = source;
   scrubReport(report);
-  await pool.query(
-    `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'heart', $3::jsonb)`,
-    [req.auth.userId, user.org_id, JSON.stringify({ heart: req.body.heart, heartReport: report })],
-  );
+  try {
+    await pool.query(
+      `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'heart', $3::jsonb)`,
+      [req.auth.userId, user.org_id, JSON.stringify({ heart: req.body.heart, heartReport: report })],
+    );
+  } catch (err) {
+    console.error('[analyze-heart] check_ins persist failed:', err.message);
+  }
   res.json({ ok: true, report });
 });
 
@@ -502,10 +510,14 @@ app.post('/api/analyze-blow', requireAuth, async (req, res) => {
   }
   personalReport.source = personalReportSource;
 
-  await pool.query(
-    `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'breath', $3::jsonb)`,
-    [req.auth.userId, user.org_id, JSON.stringify({ features: req.body.features, estimate, atsFlags: flags, personalReport })],
-  );
+  try {
+    await pool.query(
+      `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'breath', $3::jsonb)`,
+      [req.auth.userId, user.org_id, JSON.stringify({ features: req.body.features, estimate, atsFlags: flags, personalReport })],
+    );
+  } catch (err) {
+    console.error('[analyze-blow] check_ins persist failed:', err.message);
+  }
   res.json({
     valid: true,
     classification,
