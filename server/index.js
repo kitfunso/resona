@@ -335,8 +335,23 @@ function scrubReport(report) {
   return report;
 }
 
-app.post('/api/analyze-neuro', async (req, res) => {
-  const { tremor, gait, demographics } = req.body || {};
+app.post('/api/analyze-neuro', requireAuth, async (req, res) => {
+  const user = await loadCurrentUser(req.auth.userId);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  const ageYears = user.dob
+    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
+    : null;
+  const demographics = {
+    age: ageYears,
+    sex: user.sex,
+    heightCm: user.height_cm,
+    ethnicity: user.ethnicity,
+  };
+  if (!ageYears || !demographics.sex) {
+    return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
+  }
+
+  const { tremor, gait } = req.body || {};
   if (!tremor && !gait) {
     return res.status(400).json({ error: 'need at least one of tremor or gait' });
   }
@@ -362,11 +377,30 @@ app.post('/api/analyze-neuro', async (req, res) => {
   }
   report.source = source;
   scrubReport(report);
+  await pool.query(
+    `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'motion', $3::jsonb)`,
+    [req.auth.userId, user.org_id, JSON.stringify({ tremor: req.body.tremor, gait: req.body.gait, neuroReport: report })],
+  );
   res.json({ ok: true, report });
 });
 
-app.post('/api/analyze-heart', async (req, res) => {
-  const { heart, demographics } = req.body || {};
+app.post('/api/analyze-heart', requireAuth, async (req, res) => {
+  const user = await loadCurrentUser(req.auth.userId);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  const ageYears = user.dob
+    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
+    : null;
+  const demographics = {
+    age: ageYears,
+    sex: user.sex,
+    heightCm: user.height_cm,
+    ethnicity: user.ethnicity,
+  };
+  if (!ageYears || !demographics.sex) {
+    return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
+  }
+
+  const { heart } = req.body || {};
   if (!heart || typeof heart !== 'object') {
     return res.status(400).json({ error: 'missing heart payload' });
   }
@@ -405,16 +439,32 @@ app.post('/api/analyze-heart', async (req, res) => {
   }
   report.source = source;
   scrubReport(report);
+  await pool.query(
+    `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'heart', $3::jsonb)`,
+    [req.auth.userId, user.org_id, JSON.stringify({ heart: req.body.heart, heartReport: report })],
+  );
   res.json({ ok: true, report });
 });
 
-app.post('/api/analyze-blow', async (req, res) => {
-  const { features, estimate, demographics, sessionId } = req.body || {};
-  if (!features || !estimate || !demographics) {
-    return res.status(400).json({ error: 'missing features, estimate, or demographics' });
+app.post('/api/analyze-blow', requireAuth, async (req, res) => {
+  const user = await loadCurrentUser(req.auth.userId);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  const ageYears = user.dob
+    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
+    : null;
+  const demographics = {
+    age: ageYears,
+    sex: user.sex,
+    heightCm: user.height_cm,
+    ethnicity: user.ethnicity,
+  };
+  if (!ageYears || !demographics.sex || !demographics.heightCm) {
+    return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
   }
-  if (!demographics.sex || !demographics.ageYears || !demographics.heightCm) {
-    return res.status(400).json({ error: 'demographics requires sex, ageYears, heightCm' });
+
+  const { features, estimate, sessionId } = req.body || {};
+  if (!features || !estimate) {
+    return res.status(400).json({ error: 'missing features or estimate' });
   }
 
   const classification = classifierFallback({ features, estimate });
@@ -452,6 +502,10 @@ app.post('/api/analyze-blow', async (req, res) => {
   }
   personalReport.source = personalReportSource;
 
+  await pool.query(
+    `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'breath', $3::jsonb)`,
+    [req.auth.userId, user.org_id, JSON.stringify({ features: req.body.features, estimate, atsFlags: flags, personalReport })],
+  );
   res.json({
     valid: true,
     classification,
