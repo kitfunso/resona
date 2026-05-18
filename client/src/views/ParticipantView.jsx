@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { unlockAudio, acquireMicPermission, recordBlow } from '../audio/recorder.js';
 import { extractFeatures } from '../audio/features.js';
 import { estimateSpirometry } from '../audio/regression.js';
