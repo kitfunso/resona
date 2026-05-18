@@ -104,7 +104,6 @@ export function buildNeuroReportUserMessage({ tremor, gait, demographics }) {
       name: demographics?.name || null,
       ageYears: demographics?.ageYears ?? null,
       sex: demographics?.sex ?? null,
-      teamCode: demographics?.teamCode ?? null,
     },
     tremor: tremor
       ? {
@@ -174,7 +173,6 @@ export function buildHeartReportUserMessage({ heart, demographics }) {
       ageYears: demographics?.ageYears ?? null,
       sex: demographics?.sex ?? null,
       ethnicity: demographics?.ethnicity ?? null,
-      teamCode: demographics?.teamCode ?? null,
     },
     heart: heart
       ? {
