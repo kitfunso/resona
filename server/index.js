@@ -3,8 +3,9 @@ import cors from 'cors';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { migrate } from './db.js';
+import { migrate, pool } from './db.js';
 import { requestCode, verifyCode, issueSession, SESSION_COOKIE, SESSION_TTL_SEC_OUT } from './auth.js';
+import { requireAuth, loadCurrentUser } from './middleware-auth.js';
 import { MODEL, askGLMJson, isConfigured } from './llm.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
@@ -496,6 +497,29 @@ app.post('/api/auth/verify', async (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE, { path: '/' });
   res.json({ ok: true });
+});
+
+app.get('/api/me', requireAuth, async (req, res) => {
+  const user = await loadCurrentUser(req.auth.userId);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  res.json({ user });
+});
+
+app.patch('/api/me', requireAuth, async (req, res) => {
+  const { name, dob, heightCm, sex, ethnicity } = req.body ?? {};
+  const allowed = {};
+  if (typeof name === 'string') allowed.name = name.slice(0, 200);
+  if (typeof dob === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dob)) allowed.dob = dob;
+  if (Number.isInteger(heightCm) && heightCm > 50 && heightCm < 250) allowed.height_cm = heightCm;
+  if (typeof sex === 'string') allowed.sex = sex.slice(0, 32);
+  if (typeof ethnicity === 'string') allowed.ethnicity = ethnicity.slice(0, 64);
+  const keys = Object.keys(allowed);
+  if (keys.length === 0) return res.json({ user: await loadCurrentUser(req.auth.userId) });
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+  const values = keys.map((k) => allowed[k]);
+  values.push(req.auth.userId);
+  await pool.query(`UPDATE users SET ${setClause} WHERE id = $${values.length}`, values);
+  res.json({ user: await loadCurrentUser(req.auth.userId) });
 });
 
 // -----------------------------------------------------------------------------
