@@ -3,6 +3,8 @@ import cors from 'cors';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
+import rateLimit from 'express-rate-limit';
 import { migrate, pool } from './db.js';
 import { requestCode, verifyCode, issueSession, SESSION_COOKIE, SESSION_TTL_SEC_OUT } from './auth.js';
 import { requireAuth, loadCurrentUser } from './middleware-auth.js';
@@ -21,12 +23,48 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
 
+const authRequestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 3,
+  keyGenerator: (req) => `${req.ip}:${String(req.body?.email ?? '').toLowerCase()}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too many requests' },
+});
+
+const authVerifyLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req) => `${req.ip}:${String(req.body?.email ?? '').toLowerCase()}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'too many attempts; try again later' },
+});
+
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5174')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 // -----------------------------------------------------------------------------
 // Express + /health + /api/analyze-blow
 // -----------------------------------------------------------------------------
 const app = express();
-app.set('trust proxy', true);
-app.use(cors());
+app.set('trust proxy', 1);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(new Error('CORS not allowed'));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (req, res) => {
@@ -526,7 +564,7 @@ app.post('/api/analyze-blow', requireAuth, async (req, res) => {
   });
 });
 
-app.post('/api/auth/request', async (req, res) => {
+app.post('/api/auth/request', authRequestLimiter, async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email : '';
   if (!email.includes('@')) return res.status(400).json({ error: 'invalid email' });
   try {
@@ -538,7 +576,7 @@ app.post('/api/auth/request', async (req, res) => {
   }
 });
 
-app.post('/api/auth/verify', async (req, res) => {
+app.post('/api/auth/verify', authVerifyLimiter, async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email : '';
   const code = typeof req.body?.code === 'string' ? req.body.code : '';
   if (!email || !/^\d{6}$/.test(code)) {
@@ -561,7 +599,12 @@ app.post('/api/auth/verify', async (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  res.clearCookie(SESSION_COOKIE, { path: '/' });
+  res.clearCookie(SESSION_COOKIE, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  });
   res.json({ ok: true });
 });
 
@@ -571,20 +614,42 @@ app.get('/api/me', requireAuth, async (req, res) => {
   res.json({ user });
 });
 
+const SEX_VALUES = new Set(['male', 'female', 'intersex', 'other', 'prefer-not-to-say']);
+const ETHNICITY_VALUES = new Set([
+  'Caucasian', 'African', 'African-American', 'Hispanic', 'East Asian',
+  'South Asian', 'Southeast Asian', 'Middle Eastern', 'Indigenous', 'Mixed', 'Other',
+]);
+
 app.patch('/api/me', requireAuth, async (req, res) => {
   const { name, dob, heightCm, sex, ethnicity } = req.body ?? {};
   const allowed = {};
-  if (typeof name === 'string') allowed.name = name.slice(0, 200);
-  if (typeof dob === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dob)) allowed.dob = dob;
+  if (typeof name === 'string') {
+    const cleaned = name.replace(/[^\p{L}\p{M} .'\-]/gu, '').slice(0, 200).trim();
+    if (cleaned.length > 0) allowed.name = cleaned;
+  }
+  if (typeof dob === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+    const d = new Date(`${dob}T00:00:00Z`);
+    const yr = d.getUTCFullYear();
+    if (!Number.isNaN(d.getTime()) && yr >= 1900 && d.getTime() <= Date.now()) {
+      allowed.dob = dob;
+    }
+  }
   if (Number.isInteger(heightCm) && heightCm > 50 && heightCm < 250) allowed.height_cm = heightCm;
-  if (typeof sex === 'string') allowed.sex = sex.slice(0, 32);
-  if (typeof ethnicity === 'string') allowed.ethnicity = ethnicity.slice(0, 64);
+  if (typeof sex === 'string' && SEX_VALUES.has(sex)) allowed.sex = sex;
+  if (typeof ethnicity === 'string' && ETHNICITY_VALUES.has(ethnicity)) allowed.ethnicity = ethnicity;
   const keys = Object.keys(allowed);
   if (keys.length === 0) return res.json({ user: await loadCurrentUser(req.auth.userId) });
   const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
   const values = keys.map((k) => allowed[k]);
   values.push(req.auth.userId);
-  await pool.query(`UPDATE users SET ${setClause} WHERE id = $${values.length}`, values);
+  try {
+    await pool.query(`UPDATE users SET ${setClause} WHERE id = $${values.length}`, values);
+  } catch (err) {
+    if (err.code === '22008' || err.code === '22007') {
+      return res.status(400).json({ error: 'invalid date' });
+    }
+    throw err;
+  }
   res.json({ user: await loadCurrentUser(req.auth.userId) });
 });
 
@@ -592,15 +657,26 @@ app.patch('/api/me', requireAuth, async (req, res) => {
 // Admin bootstrap endpoints
 // -----------------------------------------------------------------------------
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+if (ADMIN_TOKEN && ADMIN_TOKEN.length < 32) {
+  throw new Error('ADMIN_TOKEN must be at least 32 chars');
+}
+const ADMIN_TOKEN_BUF = ADMIN_TOKEN ? Buffer.from(ADMIN_TOKEN) : null;
 
 function requireAdmin(req, res, next) {
-  if (!ADMIN_TOKEN) return res.status(503).json({ error: 'admin disabled' });
+  if (!ADMIN_TOKEN_BUF) return res.status(503).json({ error: 'admin disabled' });
   const provided = req.headers['x-admin-token'];
-  if (provided !== ADMIN_TOKEN) return res.status(401).json({ error: 'unauthorized' });
+  if (typeof provided !== 'string') return res.status(401).json({ error: 'unauthorized' });
+  const providedBuf = Buffer.from(provided);
+  if (providedBuf.length !== ADMIN_TOKEN_BUF.length) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  if (!crypto.timingSafeEqual(providedBuf, ADMIN_TOKEN_BUF)) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
   next();
 }
 
-app.post('/api/admin/orgs', requireAdmin, async (req, res) => {
+app.post('/api/admin/orgs', adminLimiter, requireAdmin, async (req, res) => {
   const { slug, name, firstUserEmail } = req.body ?? {};
   if (typeof slug !== 'string' || !/^[a-z0-9-]{2,40}$/.test(slug)) {
     return res.status(400).json({ error: 'invalid slug (lowercase, digits, hyphens, 2-40 chars)' });
@@ -634,7 +710,7 @@ app.post('/api/admin/orgs', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/users', requireAdmin, async (req, res) => {
+app.post('/api/admin/users', adminLimiter, requireAdmin, async (req, res) => {
   const { orgSlug, email } = req.body ?? {};
   if (typeof orgSlug !== 'string' || typeof email !== 'string' || !email.includes('@')) {
     return res.status(400).json({ error: 'invalid input' });

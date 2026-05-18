@@ -1,6 +1,19 @@
 import React, { useState } from 'react';
-import { ETHNICITY_OPTIONS } from '../../../shared/reference-equations.js';
 import { patchMe } from '../auth.js';
+
+const ETHNICITY_OPTIONS = [
+  { value: 'Caucasian',       label: 'Caucasian / White' },
+  { value: 'African',         label: 'African' },
+  { value: 'African-American',label: 'African American' },
+  { value: 'Hispanic',        label: 'Hispanic or Latino' },
+  { value: 'East Asian',      label: 'East Asian (Chinese, Japanese, Korean)' },
+  { value: 'South Asian',     label: 'South Asian (Indian, Pakistani, Bangladeshi, Sri Lankan)' },
+  { value: 'Southeast Asian', label: 'Southeast Asian' },
+  { value: 'Middle Eastern',  label: 'Middle Eastern' },
+  { value: 'Indigenous',      label: 'Indigenous' },
+  { value: 'Mixed',           label: 'Mixed' },
+  { value: 'Other',           label: 'Other' },
+];
 
 const css = `
   .ob-card {

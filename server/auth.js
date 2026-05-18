@@ -24,14 +24,21 @@ export async function requestCode(email) {
     'SELECT id FROM users WHERE lower(email) = $1 LIMIT 1',
     [normalized],
   );
-  // Always behave the same way regardless of whether the user exists,
-  // to avoid leaking which emails are registered. Only actually send if the
-  // user exists.
-  if (rows.length === 0) return;
+  if (rows.length === 0) {
+    // Burn matching CPU so response time doesn't reveal whether the email is registered.
+    await bcrypt.hash(generateCode(), 10);
+    return;
+  }
 
   const code = generateCode();
   const hash = await bcrypt.hash(code, 10);
   const expiresAt = new Date(Date.now() + CODE_TTL_MS);
+  await pool.query(
+    `DELETE FROM auth_codes
+       WHERE lower(email) = $1
+         AND (expires_at < now() OR consumed_at IS NOT NULL)`,
+    [normalized],
+  );
   await pool.query(
     'INSERT INTO auth_codes (email, code_hash, expires_at) VALUES ($1, $2, $3)',
     [normalized, hash, expiresAt],

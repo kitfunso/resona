@@ -197,6 +197,7 @@ Backbone for a real product. Demo-flavoured paths removed in Phase A; Phase B re
 - [x] Admin bootstrap endpoints (`/api/admin/orgs`, `/api/admin/users`) gated by `ADMIN_TOKEN` env.
 - [x] All three analyze endpoints (blow / neuro / heart) require a session, source demographics from the authenticated user, and persist results to `check_ins`.
 - [x] Client: `LoginView` + session bootstrap in `App.jsx` + `client/src/auth.js`. `OnboardingView` renamed to `ProfileSetupView` and gated to first-time-only.
+- [x] Security hardening: rate limits (auth + admin), `LLM_TRACE` gate + PII redactor, timing-safe `ADMIN_TOKEN` compare with boot length check, CORS origin allowlist, `auth_codes` GC, `dob` real-date validator, `sex`/`ethnicity` server-side allowlists.
 
 What's intentionally NOT in this phase: admin/HR dashboard, time-series trend UI, anonymized team aggregates, SSO, real email sender (Resend / Mailgun / SES integration), production deploy (Fly / Render config), DPA / privacy policy text. Those land in the next plan.
 

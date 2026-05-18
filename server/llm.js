@@ -30,8 +30,23 @@ export function isConfigured() {
   return client !== null;
 }
 
+const TRACE_ENABLED = process.env.LLM_TRACE === '1';
+const PII_KEYS = new Set(['dob', 'height_cm', 'heightCm', 'sex', 'ethnicity', 'name', 'email']);
+
+function redact(value) {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(redact);
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    out[k] = PII_KEYS.has(k) ? '[redacted]' : redact(v);
+  }
+  return out;
+}
+
 function traceWrite(entry) {
-  const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n';
+  if (!TRACE_ENABLED) return;
+  const safe = { ...entry, in: redact(entry.in) };
+  const line = JSON.stringify({ ts: new Date().toISOString(), ...safe }) + '\n';
   try {
     fs.appendFileSync(TRACE_PATH, line);
   } catch (err) {
