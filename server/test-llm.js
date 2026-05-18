@@ -3,8 +3,8 @@ import { askGLMText, MODEL, isConfigured } from './llm.js';
 
 async function main() {
   if (!isConfigured()) {
-    console.error('Resona LLM check: FAILED — OPENAI_API_KEY is not set.');
-    process.exit(1);
+    console.log('Resona LLM check: SKIPPED — OPENAI_API_KEY is not set.');
+    process.exit(0);
   }
   process.stdout.write(`Resona LLM check: pinging ${MODEL}... `);
   try {

@@ -1,9 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import http from 'node:http';
-import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { migrate } from './db.js';
 import { MODEL, askGLMJson, isConfigured } from './llm.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
@@ -18,20 +18,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
-
-const db = new Database(':memory:');
-db.pragma('journal_mode = MEMORY');
-db.exec(`
-  CREATE TABLE IF NOT EXISTS blows (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    fev1 REAL NOT NULL,
-    fvc REAL NOT NULL,
-    pef REAL NOT NULL,
-    percent_predicted REAL NOT NULL,
-    flagged INTEGER NOT NULL DEFAULT 0
-  );
-`);
 
 // -----------------------------------------------------------------------------
 // Express + /health + /api/analyze-blow
@@ -48,7 +34,7 @@ app.get('/health', (req, res) => {
     modules: ['Breath', 'Neuro', 'Heart'],
     tagline: 'Every body has a rhythm.',
     glm: { model: MODEL, configured: isConfigured() },
-    db: 'sqlite-memory',
+    db: 'postgres',
     uptime_s: Math.round(process.uptime()),
   });
 });
@@ -464,21 +450,6 @@ app.post('/api/analyze-blow', async (req, res) => {
   }
   personalReport.source = personalReportSource;
 
-  try {
-    db.prepare(
-      'INSERT INTO blows (created_at, fev1, fvc, pef, percent_predicted, flagged) VALUES (?, ?, ?, ?, ?, ?)',
-    ).run(
-      new Date().toISOString(),
-      estimate.fev1,
-      estimate.fvc,
-      estimate.pef,
-      estimate.percentPredicted.fev1,
-      flagged ? 1 : 0,
-    );
-  } catch (err) {
-    console.warn(`[analyze-blow] sqlite insert failed: ${err.message}`);
-  }
-
   res.json({
     valid: true,
     classification,
@@ -492,7 +463,20 @@ app.post('/api/analyze-blow', async (req, res) => {
 // -----------------------------------------------------------------------------
 const server = http.createServer(app);
 
-server.listen(PORT, () => {
-  console.log(`[Resona] server listening on :${PORT}`);
-  console.log(`[Resona] LLM model: ${MODEL} (configured: ${isConfigured() ? 'yes' : 'NO — set OPENAI_API_KEY'})`);
-});
+// Export the Express app so the HTTP integration test (Task B8.5) can
+// mount it without binding a port. Only migrate + listen when this file
+// is run directly, not when it's imported.
+export { app };
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  migrate()
+    .then(() => {
+      server.listen(PORT, () => {
+        console.log(`[Resona] backend listening on :${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('[Resona] migration failed, aborting boot:', err);
+      process.exit(1);
+    });
+}
