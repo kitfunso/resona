@@ -19,6 +19,14 @@ export function resetEmailLog() {
   }
 }
 
+// Reads the dev email log. Tests use this instead of reconstructing the
+// path themselves — a CWD-relative path breaks under `npm test`, which
+// runs with the cwd set to server/.
+export function readEmailLog() {
+  if (!fs.existsSync(LOG_PATH)) return [];
+  return JSON.parse(fs.readFileSync(LOG_PATH, 'utf8'));
+}
+
 export async function sendEmail({ to, subject, text, html }) {
   if (sender) {
     return sender({ to, subject, text, html });
