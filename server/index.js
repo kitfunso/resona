@@ -4,6 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from './db.js';
+import { requestCode, verifyCode, issueSession, SESSION_COOKIE, SESSION_TTL_SEC_OUT } from './auth.js';
 import { MODEL, askGLMJson, isConfigured } from './llm.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
@@ -456,6 +457,45 @@ app.post('/api/analyze-blow', async (req, res) => {
     atsFlags: classification.atsFlags || [],
     personalReport,
   });
+});
+
+app.post('/api/auth/request', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email : '';
+  if (!email.includes('@')) return res.status(400).json({ error: 'invalid email' });
+  try {
+    await requestCode(email);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[auth/request]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+app.post('/api/auth/verify', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email : '';
+  const code = typeof req.body?.code === 'string' ? req.body.code : '';
+  if (!email || !/^\d{6}$/.test(code)) {
+    return res.status(400).json({ error: 'invalid input' });
+  }
+  try {
+    const session = await verifyCode(email, code);
+    const token = await issueSession({ userId: session.userId, orgId: session.orgId });
+    res.cookie(SESSION_COOKIE, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: SESSION_TTL_SEC_OUT * 1000,
+      path: '/',
+    });
+    res.json({ ok: true, email: session.email });
+  } catch (err) {
+    res.status(401).json({ error: 'invalid or expired code' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie(SESSION_COOKIE, { path: '/' });
+  res.json({ ok: true });
 });
 
 // -----------------------------------------------------------------------------
