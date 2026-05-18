@@ -22,10 +22,11 @@ Audio is analysed in the browser. IMU samples are analysed in the browser. Video
 
 ## Stack
 
-- Backend: Node.js, Express, WebSocket (`ws`), ephemeral SQLite (`better-sqlite3`, `:memory:`)
+- Backend: Node.js, Express, Postgres (`pg`), JWT sessions (`jose`), OpenAI SDK
 - Frontend: React 18 + Vite 5
-- LLM: Codex (ChatGPT OAuth, default `gpt-5.4`) via `@mariozechner/pi-ai` for personal report, GP letter, heart report, and the live narrator. Auth is the user's `~/.codex/auth.json` (populated by `codex login`); no API key in env.
-- Face detect: MediaPipe Tasks Vision (`@mediapipe/tasks-vision`). The wasm runtime is served from `node_modules/` via a small inline vite plugin, so demo-day face detect doesn't depend on the jsdelivr CDN.
+- Auth: passwordless magic-code via email (6-digit code, 10-min TTL, single-use)
+- LLM: OpenAI API (default `gpt-4o`, overridable via `OPENAI_MODEL`)
+- Face detect: MediaPipe Tasks Vision (`@mediapipe/tasks-vision`), wasm served from `node_modules/`
 - Typography: Instrument Serif, Manrope, JetBrains Mono
 
 ## Run locally
@@ -34,26 +35,31 @@ Audio is analysed in the browser. IMU samples are analysed in the browser. Video
 # 1. install workspace dependencies
 npm install
 
-# 2. copy env (optional, only for non-default overrides)
+# 2. provision a local Postgres database
+createdb resona_dev
+
+# 3. copy env and fill in the four required values
 cp .env.example .env
+# edit .env:
+#   OPENAI_API_KEY=sk-...
+#   DATABASE_URL=postgres:///resona_dev
+#   SESSION_SECRET=$(openssl rand -base64 48 | tr -d '=\n')
+#   ADMIN_TOKEN=$(openssl rand -base64 32 | tr -d '=\n')
 
-# 3. log in to Codex once (writes ~/.codex/auth.json)
-npx @openai/codex login
+# 4. boot the server (runs migrations automatically on startup)
+npm run dev:server
 
-# 4. verify the Codex endpoint
-npm run test:glm
+# 5. bootstrap your first org + user (in another terminal)
+curl -X POST http://localhost:3030/api/admin/orgs \
+  -H "Content-Type: application/json" \
+  -H "x-admin-token: $(grep ADMIN_TOKEN .env | cut -d= -f2)" \
+  -d '{"slug":"demo","name":"Demo Co","firstUserEmail":"you@example.com"}'
 
-# 5. run backend + frontend together
-npm run dev
-# backend: http://localhost:3030 (health at /health)
-# frontend: http://localhost:5174
-
-# 6. expose over HTTPS for iOS mic / motion / camera permissions
-# (separate terminal)
-ngrok http 5174
+# 6. boot the frontend
+npm run dev:client
+# open http://localhost:5174, sign in with your email
+# the magic-code is logged to the server console + dev-emails/log.json
 ```
-
-Once ngrok is up, the projector lives at `/projector` and the participant flow at `/`.
 
 ## Scripts
 
