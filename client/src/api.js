@@ -10,6 +10,7 @@ async function postJson(path, body, { retries = 1, timeoutMs = 35000 } = {}) {
     try {
       const res = await fetch(path, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: controller.signal,
