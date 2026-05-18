@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
@@ -742,6 +743,21 @@ app.post('/api/admin/users', adminLimiter, requireAdmin, async (req, res) => {
     res.status(500).json({ error: 'failed' });
   }
 });
+
+// -----------------------------------------------------------------------------
+// Static client — in production this server also serves the built SPA, so the
+// whole app deploys as a single unit. In dev the client runs under Vite, so
+// this block is inert (NODE_ENV unset, and client/dist may not exist).
+// -----------------------------------------------------------------------------
+const CLIENT_DIST = path.join(__dirname, '..', 'client', 'dist');
+if (process.env.NODE_ENV === 'production' && fs.existsSync(CLIENT_DIST)) {
+  app.use(express.static(CLIENT_DIST));
+  // SPA fallback: any GET that is not an API route returns index.html, so
+  // client-side routing works on hard refresh. /api/* keeps its JSON 404s.
+  app.get(/^\/(?!api\/).*/, (req, res) => {
+    res.sendFile(path.join(CLIENT_DIST, 'index.html'));
+  });
+}
 
 // -----------------------------------------------------------------------------
 // HTTP server

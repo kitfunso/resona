@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+.git
+.gitignore
+.env
+.env.*
+dev-emails
+client/dist
+dist
+build
+*.log
+llm-trace.log
+.gstack
+docs
+deck
+mockups
+.DS_Store
