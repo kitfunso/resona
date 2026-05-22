@@ -126,6 +126,16 @@ Final signal: `activeSec05` (time envelope above 5% of own peak). Anchor 4.5s = 
 - Decision: stay with current architecture; add ATS checks as the next accuracy upgrade.
 ### Phase 4: Polish, fallbacks, demo mode, PENDING
 
+### Phase 5: Module 3 - rPPG heart screen, COMPLETE (2026-05-22)
+- [x] `client/src/heart/camera.js` - front-camera capture (getUserMedia, downscaled ROI canvas sampled at ~30 Hz), `acquireCameraPermission` + `captureRPPG`.
+- [x] `client/src/heart/rppg.js` - pure DSP: resample, detrend, POS demixing (green-channel fallback), bandpass 0.7-4 Hz, FFT, de Haan and Jeanne dB SNR, quality flag, classification.
+- [x] `client/src/views/HeartView.jsx` - capture view, stages intro/prep/capture/analyzing/report/retry/error, brass instrument ROI oval, css prefix `hv-`.
+- [x] `server/test-rppg.js` - standalone-node synthetic-signal DSP test (3 cases, jittered fps).
+- [x] `POST /api/analyze-heart` + `HEART_REPORT_SYSTEM` prompt + `heartReportFallback`; `analyzeHeart` in `client/src/api.js`.
+- [x] Wired the `heart` stage into `ParticipantView` with a CTA in `ResultsView`.
+- Privacy: raw video never leaves the browser; only the numeric heart feature object is POSTed.
+- Out of scope (fast-follow): projector team-HR aggregation; README roadmap-status doc-sync.
+
 ## Known issues
 
 - iOS Safari requires a direct user tap to unlock `AudioContext`, Phase 1 must handle this explicitly.

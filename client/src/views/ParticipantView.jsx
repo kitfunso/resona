@@ -6,6 +6,7 @@ import { analyzeBlow } from '../api.js';
 import OnboardingView from './OnboardingView.jsx';
 import ResultsView, { CoachingCard } from './ResultsView.jsx';
 import NeuroView from './NeuroView.jsx';
+import HeartView from './HeartView.jsx';
 
 const DURATION_MS = 6000;
 
@@ -761,6 +762,7 @@ export default function ParticipantView() {
           onRetry={resetToBlow}
           onStartOver={resetToOnboarding}
           onNeuro={() => setStage('neuro')}
+          onHeart={() => setStage('heart')}
         />
       )}
 
@@ -768,6 +770,13 @@ export default function ParticipantView() {
         <NeuroView
           demographics={demographicsRef.current}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
+        />
+      )}
+
+      {stage === 'heart' && (
+        <HeartView
+          demographics={demographicsRef.current}
+          onBack={() => setStage('results')}
         />
       )}
 

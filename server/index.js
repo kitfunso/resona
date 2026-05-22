@@ -11,11 +11,13 @@ import {
   PERSONAL_REPORT_SYSTEM,
   GP_LETTER_SYSTEM,
   NEURO_REPORT_SYSTEM,
+  HEART_REPORT_SYSTEM,
   NARRATOR_SYSTEM,
   buildClassifierUserMessage,
   buildPersonalReportUserMessage,
   buildGpLetterUserMessage,
   buildNeuroReportUserMessage,
+  buildHeartReportUserMessage,
   buildNarratorUserMessage,
 } from './prompts.js';
 
@@ -417,15 +419,83 @@ function neuroReportFallback({ tremor, gait }) {
   return { headline, interpretation, actions, whenToWorry };
 }
 
+function heartReportFallback({ heart }) {
+  const bpm = Number.isFinite(heart?.bpm) ? Math.round(heart.bpm) : null;
+  const quality = typeof heart?.quality === 'string' ? heart.quality : 'invalid';
+  const isInvalid = quality === 'invalid';
+  const isWeak = quality === 'weak';
+  const isLow = heart?.classification === 'low';
+  const isElevated = heart?.classification === 'elevated';
+
+  const headline = isInvalid
+    ? 'We could not get a clear pulse reading.'
+    : isElevated
+    ? 'Your resting pulse read on the faster side.'
+    : isLow
+    ? 'Your resting pulse read on the lower side.'
+    : 'Your resting pulse looks typical.';
+
+  const qualityNote = isInvalid
+    ? 'The camera could not lock onto a steady pulse this time, so there is no reliable number to share. '
+    : isWeak
+    ? 'The signal was a little noisy, so treat the number as a rough guide rather than a precise figure. '
+    : 'The signal looked clear for a camera reading. ';
+  const interpretation =
+    qualityNote +
+    (bpm != null
+      ? `The estimate came out around ${bpm} beats per minute. `
+      : '') +
+    'This is a screening-grade estimate from your phone camera, not a clinical heart rate, so a smartwatch or a GP check is far more accurate.';
+
+  const actions = isInvalid
+    ? [
+        { title: 'Take the reading again', detail: 'Sit still in bright, even light with your face filling the oval, and hold the phone steady.' },
+        { title: 'Settle before you start', detail: 'Rest for a minute or two first so a recent walk or stairs does not skew the reading.' },
+        { title: 'Use a watch for a real number', detail: 'A smartwatch or a 30-second manual pulse count gives a far more reliable resting heart rate.' },
+      ]
+    : isElevated
+    ? [
+        { title: 'Rest and re-check', detail: 'Sit quietly for five minutes, then take the reading again to see if it settles.' },
+        { title: 'Ease off late-day caffeine', detail: 'Coffee and energy drinks lift resting heart rate. Try none after lunch for a few days.' },
+        { title: 'Add a calm breathing break', detail: 'Two minutes of slow box breathing at your desk can bring a stress-driven pulse down.' },
+      ]
+    : isLow
+    ? [
+        { title: 'Treat a low resting rate as common', detail: 'A lower resting pulse is often seen in fitter, well-rested people and is usually nothing to worry about.' },
+        { title: 'Keep moving through the day', detail: 'Short walks every hour of desk time support healthy circulation.' },
+        { title: 'Re-check when rested', detail: 'Take another reading on a calm morning to build your personal baseline.' },
+      ]
+    : [
+        { title: 'Stand up every hour', detail: 'A short movement break each hour of desk work keeps your heart and circulation active.' },
+        { title: 'Try a walking meeting', detail: 'Swapping one seated call a day for a walk adds gentle cardio without extra time.' },
+        { title: 'Re-check monthly', detail: 'One reading is a snapshot. Tracking the trend over time is far more useful than any single number.' },
+      ];
+
+  const whenToWorry =
+    'See a GP if you notice a racing or pounding heartbeat at rest, chest pain or pressure, breathlessness on light activity, or any fainting.';
+
+  return { headline, interpretation, actions, whenToWorry };
+}
+
 // Defensive scrub: strip internal classification tokens that should never
 // appear in user-facing narrative. Belt-and-braces against GPT ignoring the
 // "never echo these tokens" rule in the system prompt.
+//
+// Two token families are scrubbed:
+//  - Neuro tremor tokens, which are distinctive enough to strip as bare words.
+//  - Heart tokens (good/weak/invalid quality, low/normal/elevated band). These
+//    are common English words, so they are ONLY scrubbed in the echoed-field
+//    form the model would produce if it leaked them (e.g. "quality: invalid",
+//    "classification: elevated"). Bare prose uses like "low light" or "a normal
+//    result" are deliberately left untouched.
 function scrubInternalTokens(str) {
   if (typeof str !== 'string') return str;
   return str
     .replace(/\bparkinsonian_like\b/gi, 'a low-frequency tremor signal')
     .replace(/\bessential_like\b/gi, 'a slightly higher-frequency tremor signal')
-    .replace(/\bphysiological\b(?=[\s.,:;])/gi, 'the expected everyday tremor pattern');
+    .replace(/\bphysiological\b(?=[\s.,:;])/gi, 'the expected everyday tremor pattern')
+    .replace(/\b(?:quality|qualityGrade)\s*[:=]\s*"?(good|weak|invalid)"?/gi, 'signal quality')
+    .replace(/\b(?:classification|restingBand)\s*[:=]\s*"?(low|normal|elevated)"?/gi, 'resting heart rate');
 }
 
 function scrubReport(report) {
@@ -465,6 +535,39 @@ app.post('/api/analyze-neuro', async (req, res) => {
   } catch (err) {
     console.warn(`[analyze-neuro] failed: ${err.message}`);
     report = neuroReportFallback({ tremor, gait });
+    source = 'fallback';
+  }
+  report.source = source;
+  scrubReport(report);
+  res.json({ ok: true, report });
+});
+
+app.post('/api/analyze-heart', async (req, res) => {
+  const { heart, demographics } = req.body || {};
+  if (!heart) {
+    return res.status(400).json({ error: 'missing heart features' });
+  }
+  if (typeof heart.bpm !== 'number' || typeof heart.quality !== 'string') {
+    return res.status(400).json({ error: 'heart requires numeric bpm and string quality' });
+  }
+
+  let report;
+  let source = 'ai';
+  try {
+    report = await askGPTJsonWithRetry(
+      [
+        { role: 'system', content: HEART_REPORT_SYSTEM },
+        { role: 'user', content: buildHeartReportUserMessage({ heart, demographics }) },
+      ],
+      { tag: 'heart-report', temperature: 0.8, max_tokens: 2000, reasoning: 'xhigh', fastMode: true },
+    );
+    if (!report?.headline || !Array.isArray(report?.actions)) {
+      report = heartReportFallback({ heart });
+      source = 'fallback';
+    }
+  } catch (err) {
+    console.warn(`[analyze-heart] failed: ${err.message}`);
+    report = heartReportFallback({ heart });
     source = 'fallback';
   }
   report.source = source;

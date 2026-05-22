@@ -65,3 +65,11 @@ export function analyzeBlow({ features, estimate, demographics }) {
     sessionId: getSessionId(),
   });
 }
+
+export function analyzeHeart({ heart, demographics }) {
+  return postJson('/api/analyze-heart', {
+    heart,
+    demographics,
+    sessionId: getSessionId(),
+  });
+}
