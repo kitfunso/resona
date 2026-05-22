@@ -2,9 +2,11 @@
 
 > Every body has a rhythm.
 
-Resona turns a phone into a fast team wellness check-in.
+Resona is a self-experimentation tool for the quantified-self curious. It turns a phone you already own into a quick three-signal sensor pass: breath, motion, and (with the heart module) camera-based pulse, all extracted on-device.
 
-It was built for the Watcha Global AI Hackathon 2026 in London as a live demo: people scan a QR code, complete a short sensor-based screening flow on their own phones, and see the team aggregate update on a shared projector in real time.
+**This is screening-grade self-exploration. It is not a medical device, not a diagnosis tool, and not clinical advice.** The numbers are for personal curiosity; if anything stands out to you, the right next step is a conversation with your GP, and Resona generates a short list of questions you can take to that conversation. There is no medical claim here.
+
+It originated as a live demo for the Watcha Global AI Hackathon 2026 in London (scan a QR code, complete the sensor pass on your own phone, see a shared projector view), and that demo flow still works.
 
 ## What Resona does
 

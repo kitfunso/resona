@@ -999,7 +999,7 @@ export default function HeartView({ onBack, demographics }) {
                 <div className="hv-worry">
                   <span className="icon">&sect;</span>
                   <div>
-                    <span className="lab">When to see a GP</span>
+                    <span className="lab">Ask your GP next time</span>
                     <span>{report.whenToWorry}</span>
                   </div>
                 </div>

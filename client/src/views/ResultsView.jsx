@@ -559,7 +559,7 @@ export default function ResultsView({ estimate, analysis, onRetry, onStartOver, 
       setTimeout(() => setCopied(false), 2500);
     } catch (err) {
       console.error('clipboard write failed', err);
-      alert('Copy failed. You can select the letter text and copy manually.');
+      alert('Copy failed. You can select the text and copy manually.');
     }
   }
 
@@ -671,8 +671,8 @@ export default function ResultsView({ estimate, analysis, onRetry, onStartOver, 
           <details>
             <summary>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span className="lab">Referral letter</span>
-                <span className="title">For your GP</span>
+                <span className="lab">Notes from a phone screening</span>
+                <span className="title">Questions for your GP</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 {analysis.gpLetterSource && (
@@ -686,7 +686,7 @@ export default function ResultsView({ estimate, analysis, onRetry, onStartOver, 
             <div className="rv-letter-body">{analysis.gpLetter}</div>
           </details>
           <button className="rv-copy" data-copied={copied} onClick={handleCopy}>
-            {copied ? '✓ Copied' : 'Copy letter to clipboard'}
+            {copied ? '✓ Copied' : 'Copy notes to clipboard'}
           </button>
         </div>
       )}

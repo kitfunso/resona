@@ -1,5 +1,7 @@
 # Resona · Pitch Outline
 
+> **Historical hackathon pitch (April 2026).** This document is the original B2B "corporate wellness" framing used for the live hackathon demo. It does NOT reflect Resona's current positioning. The product has since been repositioned as a quantified-self / self-experimentation tool for curious individuals, with no medical-device or clinical claims. See `README.md` for the active framing.
+
 Watcha Global AI Hackathon 2026 · London · Sunday 19 April
 
 Target length: 2 minutes, 5 slides. Pure spoken flow, no reading off the deck.
