@@ -742,7 +742,7 @@ export default function ParticipantView() {
             <span /><span /><span /><span /><span /><span /><span />
           </div>
           <div className="r-analyzing-label">Listening to your rhythm...</div>
-          <div className="r-analyzing-sub">GLM 5.1 is reading the waveform</div>
+          <div className="r-analyzing-sub">GPT-5.4 is reading the waveform</div>
         </div>
       )}
 

@@ -2,6 +2,12 @@
 
 Read this at the start of every new session. Update at the end of every phase.
 
+## Current state (2026-04-27)
+
+LLM is **GPT-5.4 via Codex OAuth** (`server/gpt-service.js`, `askGPT*` exports).
+Reporting/analysis (`neuro-report`, `personal-report`, `gp-letter`) runs at `reasoning: 'xhigh'` + `fastMode: true` (priority service tier). Narrator stays at `reasoning: 'low'` to fit the 6s tick.
+The phase history below is a record of the original Z.ai/GLM-5.1 implementation — preserved for incident context (DNS flakiness, `thinking:disabled` workaround) but no longer the active path.
+
 ## Product
 
 - Name: Resona (codename: not-a-doctor)

@@ -997,7 +997,7 @@ export default function NeuroView({ onBack, demographics }) {
               <span /><span /><span /><span /><span /><span /><span />
             </div>
             <div className="nv-analyzing-label">Reading your motion trace...</div>
-            <div className="nv-analyzing-sub">GLM 5.1 is interpreting the signals</div>
+            <div className="nv-analyzing-sub">GPT-5.4 is interpreting the signals</div>
           </div>
         </div>
       )}
@@ -1022,7 +1022,7 @@ export default function NeuroView({ onBack, demographics }) {
                   border: report.source === 'ai' ? '1px solid var(--brass-line)' : '1px solid rgba(209, 133, 137, 0.2)',
                 }}
               >
-                {report.source === 'ai' ? '● GLM 5.1' : '○ template'}
+                {report.source === 'ai' ? '● GPT-5.4' : '○ template'}
               </span>
             )}
           </div>

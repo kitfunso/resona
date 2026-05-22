@@ -10,7 +10,7 @@ import {
   PERSONAL_REPORT_SYSTEM,
   buildPersonalReportUserMessage,
 } from '../server/prompts.js';
-import { askGLMStream, askGLMJson } from '../server/glm-service.js';
+import { askGPTStream, askGPTJson } from '../server/gpt-service.js';
 
 const LEVELS = ['low', 'medium', 'high'];
 
@@ -58,7 +58,7 @@ async function runNarrator(level) {
   return timed(async () => {
     let first = null;
     const t0 = performance.now();
-    const full = await askGLMStream(
+    const full = await askGPTStream(
       [
         { role: 'system', content: NARRATOR_SYSTEM },
         { role: 'user', content: buildNarratorUserMessage(narratorState) },
@@ -72,7 +72,7 @@ async function runNarrator(level) {
 
 async function runReport(level) {
   return timed(async () => {
-    const obj = await askGLMJson(
+    const obj = await askGPTJson(
       [
         { role: 'system', content: PERSONAL_REPORT_SYSTEM },
         { role: 'user', content: buildPersonalReportUserMessage(reportInput) },

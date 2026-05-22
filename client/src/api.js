@@ -1,5 +1,5 @@
 // Tiny fetch wrapper with 1 retry on network errors.
-// The server-side endpoint handles GLM retries; this handles
+// The server-side endpoint handles GPT retries; this handles
 // the client → server hop.
 
 async function postJson(path, body, { retries = 1, timeoutMs = 35000 } = {}) {

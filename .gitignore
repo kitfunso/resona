@@ -3,7 +3,7 @@ dist/
 build/
 .env
 .env.local
-glm-trace.log
+gpt-trace.log
 *.log
 .DS_Store
 Thumbs.db

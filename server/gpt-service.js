@@ -1,7 +1,6 @@
-// Codex (ChatGPT OAuth) backend. Replaces Z.ai GLM.
+// Codex (ChatGPT OAuth) backend.
 // Reads ~/.codex/auth.json (populated by `codex login`), refreshes expiring
 // access tokens via pi-ai, and streams from Codex's /codex/responses endpoint.
-// Exports the same surface as the old GLM service so callers don't change.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,7 +11,7 @@ import { refreshOpenAICodexToken } from '@mariozechner/pi-ai/oauth';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.join(__dirname, '..');
-const TRACE_PATH = path.join(ROOT_DIR, 'glm-trace.log');
+const TRACE_PATH = path.join(ROOT_DIR, 'gpt-trace.log');
 
 dotenv.config({ path: path.join(ROOT_DIR, '.env') });
 
@@ -25,7 +24,6 @@ const DEFAULT_REASONING = process.env.CODEX_REASONING || 'medium';
 const DEFAULT_FAST_MODE = process.env.CODEX_FAST_MODE !== 'false';
 
 export const MODEL = DEFAULT_MODEL;
-// Legacy export — the old file exposed an OpenAI client. Nothing uses it now.
 export const client = null;
 
 let authState = null;
@@ -187,12 +185,11 @@ async function callCodex(messages, options = {}) {
   const isReasoningModel = /^gpt-5(\.|-|$)|^o[13](\.|-|$)/.test(modelId);
   if (options.temperature != null && !isReasoningModel) body.temperature = options.temperature;
   if (options.max_tokens != null && !isReasoningModel) body.max_output_tokens = options.max_tokens;
-  // Fast mode: priority service tier (matches OpenClaw's `fastMode: true` mapping
-  // for Codex OAuth — lower queue time in exchange for higher cost per token).
+  // Fast mode: priority service tier (lower queue time, higher cost per token).
   const fastMode = options.fastMode ?? DEFAULT_FAST_MODE;
   if (fastMode && isReasoningModel) body.service_tier = 'priority';
 
-  traceWrite({ direction: 'request', tag: options.tag || 'askCodex', body });
+  traceWrite({ direction: 'request', tag: options.tag || 'askGPT', body });
 
   const headers = {
     Authorization: `Bearer ${auth.access}`,
@@ -213,7 +210,7 @@ async function callCodex(messages, options = {}) {
       signal: options.signal,
     });
   } catch (err) {
-    traceWrite({ direction: 'error', tag: options.tag || 'askCodex', error: { message: err.message } });
+    traceWrite({ direction: 'error', tag: options.tag || 'askGPT', error: { message: err.message } });
     throw err;
   }
 
@@ -221,7 +218,7 @@ async function callCodex(messages, options = {}) {
     const text = await res.text().catch(() => '');
     const err = new Error(`Codex HTTP ${res.status}: ${text.slice(0, 500)}`);
     err.status = res.status;
-    traceWrite({ direction: 'error', tag: options.tag || 'askCodex', status: res.status, body: text });
+    traceWrite({ direction: 'error', tag: options.tag || 'askGPT', status: res.status, body: text });
     throw err;
   }
   if (!res.body) {
@@ -278,21 +275,21 @@ async function callCodex(messages, options = {}) {
 
   if (!output && finalResponse) output = extractTextFromFinalResponse(finalResponse);
 
-  traceWrite({ direction: 'response', tag: options.tag || 'askCodex', text_len: output.length });
+  traceWrite({ direction: 'response', tag: options.tag || 'askGPT', text_len: output.length });
 
   return { choices: [{ message: { role: 'assistant', content: output } }] };
 }
 
-export async function askGLM(messages, options = {}) {
+export async function askGPT(messages, options = {}) {
   return await callCodex(messages, options);
 }
 
-export async function askGLMText(messages, options = {}) {
+export async function askGPTText(messages, options = {}) {
   const r = await callCodex(messages, options);
   return r.choices?.[0]?.message?.content ?? '';
 }
 
-export async function askGLMStream(messages, options = {}, onDelta) {
+export async function askGPTStream(messages, options = {}, onDelta) {
   const r = await callCodex(messages, { ...options, onDelta });
   return r.choices?.[0]?.message?.content ?? '';
 }
@@ -305,9 +302,9 @@ function stripCodeFences(raw) {
   return trimmed;
 }
 
-export async function askGLMJson(messages, options = {}) {
-  // Codex's Responses API doesn't accept `response_format: json_object` the way
-  // GLM did; nudge it via the system prompt instead, then parse defensively.
+export async function askGPTJson(messages, options = {}) {
+  // Codex's Responses API doesn't accept `response_format: json_object`; nudge
+  // it via the system prompt instead, then parse defensively.
   const jsonNudge = 'Respond with a single valid JSON object only. No prose, no markdown fences.';
   const msgs = [...messages];
   if (msgs.length > 0 && msgs[0].role === 'system') {
@@ -321,7 +318,7 @@ export async function askGLMJson(messages, options = {}) {
   try {
     return JSON.parse(candidate);
   } catch (err) {
-    traceWrite({ direction: 'parse-error', tag: options.tag || 'askGLMJson', raw });
+    traceWrite({ direction: 'parse-error', tag: options.tag || 'askGPTJson', raw });
     throw new Error(`Codex returned non-JSON: ${raw.slice(0, 200)}`);
   }
 }

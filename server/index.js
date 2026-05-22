@@ -5,7 +5,7 @@ import http from 'node:http';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MODEL, askGLMJson, askGLMStream, isConfigured, AUTH_PATH } from './glm-service.js';
+import { MODEL, askGPTJson, askGPTStream, isConfigured, AUTH_PATH } from './gpt-service.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
   PERSONAL_REPORT_SYSTEM,
@@ -208,7 +208,7 @@ app.get('/health', (req, res) => {
     product: 'Resona',
     module: 'Breath',
     tagline: 'Every body has a rhythm.',
-    glm: { model: MODEL, configured: isConfigured(), auth_path: AUTH_PATH },
+    gpt: { model: MODEL, configured: isConfigured(), auth_path: AUTH_PATH },
     db: 'sqlite-memory',
     demoMode: DEMO_MODE,
     room: roomSnapshot(),
@@ -216,12 +216,12 @@ app.get('/health', (req, res) => {
   });
 });
 
-async function askGLMJsonWithRetry(messages, options) {
+async function askGPTJsonWithRetry(messages, options) {
   const maxAttempts = 3;
   let lastErr = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await askGLMJson(messages, options);
+      return await askGPTJson(messages, options);
     } catch (err) {
       lastErr = err;
       const msg = (err?.message || '').toLowerCase();
@@ -236,7 +236,7 @@ async function askGLMJsonWithRetry(messages, options) {
         msg.includes('rate limit');
       if (!retryable || attempt === maxAttempts) throw err;
       const delayMs = 800 * attempt;
-      console.warn(`[glm-retry] ${options.tag}: attempt ${attempt} failed (${err.message}), waiting ${delayMs}ms`);
+      console.warn(`[gpt-retry] ${options.tag}: attempt ${attempt} failed (${err.message}), waiting ${delayMs}ms`);
       await new Promise((r) => setTimeout(r, delayMs));
     }
   }
@@ -418,7 +418,7 @@ function neuroReportFallback({ tremor, gait }) {
 }
 
 // Defensive scrub: strip internal classification tokens that should never
-// appear in user-facing narrative. Belt-and-braces against GLM ignoring the
+// appear in user-facing narrative. Belt-and-braces against GPT ignoring the
 // "never echo these tokens" rule in the system prompt.
 function scrubInternalTokens(str) {
   if (typeof str !== 'string') return str;
@@ -451,12 +451,12 @@ app.post('/api/analyze-neuro', async (req, res) => {
   let report;
   let source = 'ai';
   try {
-    report = await askGLMJsonWithRetry(
+    report = await askGPTJsonWithRetry(
       [
         { role: 'system', content: NEURO_REPORT_SYSTEM },
         { role: 'user', content: buildNeuroReportUserMessage({ tremor, gait, demographics }) },
       ],
-      { tag: 'neuro-report', temperature: 0.8, max_tokens: 2000 },
+      { tag: 'neuro-report', temperature: 0.8, max_tokens: 2000, reasoning: 'xhigh', fastMode: true },
     );
     if (!report?.headline || !Array.isArray(report?.actions)) {
       report = neuroReportFallback({ tremor, gait });
@@ -535,12 +535,12 @@ app.post('/api/analyze-blow', async (req, res) => {
   let personalReport;
   let personalReportSource = 'ai';
   try {
-    personalReport = await askGLMJsonWithRetry(
+    personalReport = await askGPTJsonWithRetry(
       [
         { role: 'system', content: PERSONAL_REPORT_SYSTEM },
         { role: 'user', content: buildPersonalReportUserMessage({ estimate, demographics, atsFlags: flags }) },
       ],
-      { tag: 'personal-report', temperature: 0.8, max_tokens: 2000 },
+      { tag: 'personal-report', temperature: 0.8, max_tokens: 2000, reasoning: 'xhigh', fastMode: true },
     );
     if (!personalReport?.headline) {
       personalReport = personalReportFallback({ estimate });
@@ -556,12 +556,12 @@ app.post('/api/analyze-blow', async (req, res) => {
   let gpLetterObj;
   let gpLetterSource = 'ai';
   try {
-    gpLetterObj = await askGLMJsonWithRetry(
+    gpLetterObj = await askGPTJsonWithRetry(
       [
         { role: 'system', content: GP_LETTER_SYSTEM },
         { role: 'user', content: buildGpLetterUserMessage({ estimate, demographics, atsFlags: flags }) },
       ],
-      { tag: 'gp-letter', temperature: 0.3, max_tokens: 2500 },
+      { tag: 'gp-letter', temperature: 0.3, max_tokens: 2500, reasoning: 'xhigh', fastMode: true },
     );
     if (!gpLetterObj?.letter) {
       gpLetterObj = gpLetterFallback({ demographics, estimate });
@@ -658,7 +658,7 @@ async function runNarratorTick() {
   try {
     const snapshot = roomSnapshot();
     broadcastToProjectors({ type: 'narrator_start', streamId });
-    const full = await askGLMStream(
+    const full = await askGPTStream(
       [
         { role: 'system', content: NARRATOR_SYSTEM },
         { role: 'user', content: buildNarratorUserMessage(snapshot) },

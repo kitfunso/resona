@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js",
-    "test:glm": "node test-glm.js"
+    "test:gpt": "node test-gpt.js"
   },
   "dependencies": {
     "@mariozechner/pi-ai": "^0.68.0",

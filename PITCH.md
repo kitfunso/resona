@@ -52,7 +52,7 @@ Target length: 2 minutes, 5 slides. Pure spoken flow, no reading off the deck.
 
 **Spoken (~40s):**
 
-> You are going to try this live. Scan the QR code on the screen. Enter a team code — use ENG, DESIGN, or SALES. Then blow into the bottom of your phone for six seconds. You will see a personalised report, a copy-paste-able GP letter written by GLM-5.1, and your team's combined lung capacity fill the bar on this screen. First team to 300 litres wins.
+> You are going to try this live. Scan the QR code on the screen. Enter a team code — use ENG, DESIGN, or SALES. Then blow into the bottom of your phone for six seconds. You will see a personalised report, a copy-paste-able GP letter written by GPT-5.4, and your team's combined lung capacity fill the bar on this screen. First team to 300 litres wins.
 >
 > [live blow, wait ~20s, point at the updating bar]
 >
@@ -78,10 +78,10 @@ Target length: 2 minutes, 5 slides. Pure spoken flow, no reading off the deck.
 
 ## Speaker notes / cut-downs
 
-- **If demo fails:** pivot to the GP letter. Pull up a cached copy, read a paragraph aloud. "Written by GLM-5.1 from your numbers, not a template."
+- **If demo fails:** pivot to the GP letter. Pull up a cached copy, read a paragraph aloud. "Written by GPT-5.4 from your numbers, not a template."
 - **If questions go long:** the answer to most "does it work for X?" is "yes, because we are extracting signals, not audio. Works equally well in any language."
 - **If asked about data:** SQLite in-memory, cleared on server restart. Pitch day state dies Sunday night. Production plan = per-tenant encrypted Postgres, SOC2 roadmap.
-- **If asked why GLM-5.1 and not GPT:** Z.ai is Watcha's strategic partner, their model handles structured JSON extraction reliably and runs with zero reasoning latency when we disable the thinking mode, which we do for all customer-facing calls.
+- **If asked why GPT-5.4:** OpenAI's flagship reasoning model. We run it with `xhigh` reasoning + priority service tier on the customer-facing reports and GP letter, so the output is clinically grounded without making participants wait. Narrator stays on `low` reasoning to keep the live commentary inside the 6s tick.
 
 ---
 

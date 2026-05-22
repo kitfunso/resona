@@ -86,14 +86,11 @@ If you care about privacy-preserving screening flows, this is the bit worth stea
 - Ephemeral SQLite via `better-sqlite3`
 
 ### LLM layer
-Resona originally used GLM via Z.ai.
+Resona uses **GPT-5.4 via Codex OAuth** and reads auth from `~/.codex/auth.json`. The service lives in `server/gpt-service.js`.
 
-The current backend has been switched to **Codex OAuth-backed generation** and reads auth from `~/.codex/auth.json`. The service is implemented in `server/glm-service.js`, which still keeps its old filename and exported surface for compatibility.
+Reporting/analysis paths (`neuro-report`, `personal-report`, `gp-letter`) run with `reasoning: 'xhigh'` + priority service tier (`fastMode: true`) so the clinical output is high-fidelity without queue latency. The live narrator stays on `reasoning: 'low'` to fit inside the 6-second tick.
 
-That means:
-
-- you need to log in once with Codex locally
-- the existing `test:glm` script name is legacy, but it now checks the current Codex-backed path
+That means you need to log in once with Codex locally before the app can call GPT.
 
 ## Repository layout
 
@@ -160,10 +157,8 @@ Auth is read from:
 ### 4. Verify the LLM path
 
 ```bash
-npm run test:glm
+npm run test:gpt
 ```
-
-Yes, the script name is still `test:glm`. No, it is not actually GLM anymore.
 
 ### 5. Run the app
 
@@ -194,7 +189,7 @@ At the repo root:
 npm run dev
 npm run dev:server
 npm run dev:client
-npm run test:glm
+npm run test:gpt
 ```
 
 ## Core routes and endpoints

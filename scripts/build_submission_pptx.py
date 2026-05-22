@@ -733,7 +733,7 @@ def build_slide_04(prs):
              size=12, color=BONE_2, font=FONT_SANS, align=PP_ALIGN.CENTER)
 
     add_chrome_bottom(slide,
-                      "GP letter written live by GLM 5.1 · no audio leaves your phone",
+                      "GP letter written live by GPT-5.4 · no audio leaves your phone",
                       "04 / 05")
 
 

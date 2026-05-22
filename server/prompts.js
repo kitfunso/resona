@@ -1,4 +1,4 @@
-// GLM prompts for Resona. Each prompt is tailored to one stage of
+// GPT prompts for Resona. Each prompt is tailored to one stage of
 // the pipeline and returns strict JSON. The LLM never computes clinical
 // numbers, those are injected from the server-side regression.
 //
