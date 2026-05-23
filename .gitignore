@@ -13,3 +13,6 @@ Thumbs.db
 *.sqlite-journal
 dev-emails/
 .gstack/
+
+# Per-developer agent memory state (hippo-memory project store)
+.hippo/
