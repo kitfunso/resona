@@ -744,6 +744,141 @@ app.post('/api/admin/users', adminLimiter, requireAdmin, async (req, res) => {
   }
 });
 
+// Allowlist for role values. Mirrors the CHECK constraint on users.role and
+// role_grants.granted_role from 003_admin.sql. Keep in sync if either CHECK
+// changes.
+const ROLE_VALUES = new Set(['member', 'admin']);
+
+// Match a UUID shape before any DB call so a malformed :id param returns a
+// clean 400 instead of PG 22P02 (invalid_text_representation) escaping as a
+// generic 500. Loose v1..v8 shape, case-insensitive; the DB lookup still
+// 404s on a well-formed UUID that doesn't exist.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Team name validation mirrored from 003_admin.sql's teams.name CHECK. The
+// handler validates ahead of the insert so the friendly 400 fires before a
+// 23514 surfaces from the constraint.
+const TEAM_NAME_RE = /^[A-Za-z0-9 .,&'\-]+$/;
+function isValidTeamName(name) {
+  return typeof name === 'string'
+    && name.length >= 1
+    && name.length <= 80
+    && TEAM_NAME_RE.test(name);
+}
+
+app.post('/api/admin/users/:id/role', adminLimiter, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) {
+    return res.status(400).json({ error: 'invalid id' });
+  }
+  const { role } = req.body ?? {};
+  if (typeof role !== 'string' || !ROLE_VALUES.has(role)) {
+    return res.status(400).json({ error: 'invalid role' });
+  }
+  const { rows: existing } = await pool.query(
+    'SELECT id, email, role FROM users WHERE id = $1',
+    [id],
+  );
+  if (existing.length === 0) return res.status(404).json({ error: 'user not found' });
+  const current = existing[0];
+  if (current.role === role) {
+    // No-op: role unchanged, no audit row written. Spec A2 Step 1 contract.
+    return res.json({ user: { id: current.id, email: current.email, role: current.role } });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
+    await client.query(
+      `INSERT INTO role_grants (user_id, granted_role, granted_by)
+       VALUES ($1, $2, 'admin_token')`,
+      [id, role],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[admin/role]', err);
+    return res.status(500).json({ error: 'failed' });
+  } finally {
+    client.release();
+  }
+  console.info(`[role-grant] user=${id} role=${role} by=admin_token`);
+  res.json({ user: { id: current.id, email: current.email, role } });
+});
+
+app.post('/api/admin/teams', adminLimiter, requireAdmin, async (req, res) => {
+  const { orgSlug, name } = req.body ?? {};
+  if (typeof orgSlug !== 'string') {
+    return res.status(400).json({ error: 'invalid input' });
+  }
+  if (!isValidTeamName(name)) {
+    return res.status(400).json({ error: 'invalid name' });
+  }
+  const { rows: orgs } = await pool.query('SELECT id FROM orgs WHERE slug = $1', [orgSlug]);
+  if (orgs.length === 0) return res.status(404).json({ error: 'org not found' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO teams (org_id, name) VALUES ($1, $2)
+       RETURNING id, org_id, name, created_at`,
+      [orgs[0].id, name],
+    );
+    res.status(201).json({ team: rows[0] });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'team name already exists in this org' });
+    }
+    console.error('[admin/teams]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+app.post('/api/admin/teams/:id/members', adminLimiter, requireAdmin, async (req, res) => {
+  const { id: teamId } = req.params;
+  if (!UUID_RE.test(teamId)) {
+    return res.status(400).json({ error: 'invalid id' });
+  }
+  const { userEmail } = req.body ?? {};
+  if (typeof userEmail !== 'string' || !userEmail.includes('@')) {
+    return res.status(400).json({ error: 'invalid input' });
+  }
+  const { rows: teams } = await pool.query(
+    'SELECT id, org_id FROM teams WHERE id = $1',
+    [teamId],
+  );
+  if (teams.length === 0) return res.status(404).json({ error: 'team not found' });
+  const team = teams[0];
+  const { rows: users } = await pool.query(
+    'SELECT id, org_id FROM users WHERE lower(email) = lower($1)',
+    [userEmail],
+  );
+  if (users.length === 0) return res.status(404).json({ error: 'user not found' });
+  const user = users[0];
+  // Friendlier 400 ahead of the schema-level 23503. Defence-in-depth: the
+  // composite FK on team_memberships still rejects the insert below if a
+  // future caller skips this check.
+  if (user.org_id !== team.org_id) {
+    return res.status(400).json({ error: 'cross-org add' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO team_memberships (user_id, team_id, org_id)
+       VALUES ($1, $2, $3)
+       RETURNING user_id, team_id, org_id, created_at`,
+      [user.id, team.id, team.org_id],
+    );
+    res.status(201).json({ membership: rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'already a member' });
+    // 23503 from the composite FK means an attempted cross-org row that the
+    // handler check above missed. Map to the same 400 so the contract stays
+    // consistent. Do NOT catch 23P01 here: that is a serialisation failure,
+    // not a tenant signal, and should bubble to a 500.
+    if (err.code === '23503') return res.status(400).json({ error: 'cross-org add' });
+    console.error('[admin/teams/members]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
 // -----------------------------------------------------------------------------
 // Static client — in production this server also serves the built SPA, so the
 // whole app deploys as a single unit. In dev the client runs under Vite, so

@@ -24,7 +24,7 @@ function extractCookie(header, name) {
 
 export async function loadCurrentUser(userId) {
   const { rows } = await pool.query(
-    `SELECT u.id, u.email, u.name, u.dob, u.height_cm, u.sex, u.ethnicity,
+    `SELECT u.id, u.email, u.name, u.dob, u.height_cm, u.sex, u.ethnicity, u.role,
             o.id AS org_id, o.slug AS org_slug, o.name AS org_name
        FROM users u JOIN orgs o ON o.id = u.org_id
        WHERE u.id = $1`,
