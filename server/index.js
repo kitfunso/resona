@@ -8,7 +8,8 @@ import crypto from 'node:crypto';
 import rateLimit from 'express-rate-limit';
 import { migrate, pool } from './db.js';
 import { requestCode, verifyCode, issueSession, SESSION_COOKIE, SESSION_TTL_SEC_OUT } from './auth.js';
-import { requireAuth, loadCurrentUser } from './middleware-auth.js';
+import { requireAuth, requireOrgAdmin, loadCurrentUser } from './middleware-auth.js';
+import { orgParticipation, modalityDistribution, SUPPRESSED, MIN_GROUP } from './aggregates.js';
 import { MODEL, askGLMJson, isConfigured } from './llm.js';
 import {
   EFFORT_CLASSIFIER_SYSTEM,
@@ -47,6 +48,9 @@ const adminLimiter = rateLimit({
   limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  // Tests bypass the per-IP limit because they hit 127.0.0.1 from the same
+  // process at high throughput. Production traffic never sets NODE_ENV=test.
+  skip: () => process.env.NODE_ENV === 'test',
 });
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5174')
@@ -933,6 +937,171 @@ app.post('/api/admin/teams/:id/members', adminLimiter, requireAdmin, async (req,
     // not a tenant signal, and should bubble to a 500.
     if (err.code === '23503') return res.status(400).json({ error: 'cross-org add' });
     console.error('[admin/teams/members]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Phase B Task B2: admin aggregate reads (min-N=5 suppressed)
+// -----------------------------------------------------------------------------
+// All three routes mounted as requireAuth + requireOrgAdmin. org_id is sourced
+// EXCLUSIVELY from req.currentUser.org_id (the JWT-derived users-row join from
+// E2's requireOrgAdmin); never from request body or query.
+//
+// Article 9 special-category employer-as-controller surface. See
+// server/aggregates.js for MIN_GROUP, the SUPPRESSED sentinel discriminant,
+// the frozen BANDS table, and the three suppression layers.
+
+// parseDays enforces the ?days input contract for the aggregate routes:
+// integer in [1, 365], default 30, REJECT anything else with 400. We do
+// not silently clamp - clamping hides client bugs and a 36500-day query
+// is a DoS surface combined with finer-slice triangulation.
+const DAYS_MIN = 1;
+const DAYS_MAX = 365;
+const DAYS_DEFAULT = 30;
+function parseDays(rawValue) {
+  if (rawValue === undefined) return { value: DAYS_DEFAULT };
+  if (typeof rawValue !== 'string' || rawValue.length === 0) {
+    return { error: 'days must be integer in [1,365]' };
+  }
+  // Strict integer regex: no decimals, no leading +, no leading 0 except '0',
+  // no scientific notation. parseInt is too permissive (e.g. '30foo' -> 30).
+  if (!/^(0|[1-9][0-9]*)$/.test(rawValue)) {
+    return { error: 'days must be integer in [1,365]' };
+  }
+  const n = Number(rawValue);
+  if (n < DAYS_MIN || n > DAYS_MAX) {
+    return { error: 'days must be integer in [1,365]' };
+  }
+  return { value: n };
+}
+
+// adminAuditRead emits a [admin-read] line on every successful aggregate
+// read. UK GDPR Art 5(2) accountability: read-side mirror of [admin-deny]
+// (requireOrgAdmin) and [role-grant] (Phase A). Information disclosed is
+// bounded by what's already in the HTTP access log; adding user_id +
+// org_id is what makes the trail useful for incident review.
+function adminAuditRead(req) {
+  console.info(
+    `[admin-read] user=${req.currentUser.id} org=${req.currentUser.org_id} path=${req.method} ${req.originalUrl}`,
+  );
+}
+
+// GET /api/admin/overview?days=30
+// Returns participation + per-modality distribution for the whole org.
+// adminLimiter applies the same 20 req/min cap as the bootstrap POST
+// endpoints; this is the differential-probe mitigation - without it an
+// admin could call ?days=1, ?days=2, ..., ?days=365 to triangulate
+// per-day check-in deltas and defeat MIN_GROUP suppression.
+app.get('/api/admin/overview', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
+  const days = parseDays(req.query.days);
+  if (days.error) return res.status(400).json({ error: days.error });
+  const orgId = req.currentUser.org_id;
+  try {
+    // Parallelise the four independent queries (participation + 3 modalities).
+    const [participation, breath, motion, heart] = await Promise.all([
+      orgParticipation(orgId, days.value),
+      modalityDistribution(orgId, 'breath', days.value),
+      modalityDistribution(orgId, 'motion', days.value),
+      modalityDistribution(orgId, 'heart',  days.value),
+    ]);
+    adminAuditRead(req);
+    res.json({ participation, distributions: { breath, motion, heart } });
+  } catch (err) {
+    console.error('[admin/overview]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// GET /api/admin/teams
+// Returns the org's teams with per-team member counts (suppressed if a team
+// has fewer than MIN_GROUP members - a team of 3 is itself identifying;
+// suppress(count, count) uses the count both as value and as threshold by
+// design - the count itself is the identifying signal).
+app.get('/api/admin/teams', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
+  const orgId = req.currentUser.org_id;
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id, t.name,
+              (SELECT COUNT(*)::int FROM team_memberships
+                WHERE team_id = t.id AND org_id = t.org_id) AS member_count
+         FROM teams t
+        WHERE t.org_id = $1
+        ORDER BY lower(t.name) ASC`,
+      [orgId],
+    );
+    // suppress count itself - a team of <5 has a count that re-identifies.
+    // value === n by design: the count is both the value we'd show and the
+    // threshold gate.
+    const teams = rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      memberCount: row.member_count < MIN_GROUP
+        ? SUPPRESSED
+        : row.member_count,
+    }));
+    adminAuditRead(req);
+    res.json({ teams });
+  } catch (err) {
+    console.error('[admin/teams]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+// GET /api/admin/teams/:id/overview?days=30
+// Team-scoped variant of /overview. The 404 response is BYTE-IDENTICAL for
+// three cases (status, headers we control, body):
+//   (a) :id is a malformed UUID
+//   (b) :id is a well-formed UUID that doesn't exist anywhere
+//   (c) :id is a well-formed UUID that exists but belongs to another org
+// Distinguishable status codes here would let an org-A admin enumerate team
+// UUIDs across the system. Timing-channel distinguishability is out of
+// scope at this threat level (the cost-benefit of equalising via sentinel
+// SELECTs is poor relative to GDPR's actual concerns); status + body are
+// the surfaces we hold equal.
+const NOT_FOUND_BODY = { error: 'not found' };
+app.get('/api/admin/teams/:id/overview', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
+  // Order matters: parse days BEFORE the UUID check so a malformed-days
+  // query returns 400 regardless of UUID shape. If UUID-check ran first,
+  // a malformed UUID + malformed days would return 404 while a valid UUID +
+  // malformed days returns 400 - a distinguishability leak (an attacker
+  // could probe ?days=foo to detect UUID well-formedness).
+  const days = parseDays(req.query.days);
+  if (days.error) return res.status(400).json({ error: days.error });
+
+  const teamId = req.params.id;
+  // Regex-validate BEFORE the SELECT so a malformed id returns the same 404,
+  // not a 500 from PG's 22P02 (invalid_text_representation). Reuses the
+  // UUID_RE defined for the admin endpoints above.
+  if (!UUID_RE.test(teamId)) {
+    return res.status(404).json(NOT_FOUND_BODY);
+  }
+  const orgId = req.currentUser.org_id;
+  try {
+    // Tenant-pinned existence check: (id, org_id) must both match.
+    const { rows } = await pool.query(
+      `SELECT id, name FROM teams WHERE id = $1 AND org_id = $2`,
+      [teamId, orgId],
+    );
+    if (rows.length === 0) {
+      return res.status(404).json(NOT_FOUND_BODY);
+    }
+    const team = rows[0];
+
+    // For team-scope, we don't currently surface a separate "participation"
+    // pair (active / total): that maps awkwardly to "team active vs team
+    // total" and the team total is itself identifying for small teams. The
+    // distribution is the privacy-preserving signal; Phase C UI gets per-team
+    // counts via /api/admin/teams.
+    const [breath, motion, heart] = await Promise.all([
+      modalityDistribution(orgId, 'breath', days.value, { teamId }),
+      modalityDistribution(orgId, 'motion', days.value, { teamId }),
+      modalityDistribution(orgId, 'heart',  days.value, { teamId }),
+    ]);
+    adminAuditRead(req);
+    res.json({ team: { id: team.id, name: team.name }, distributions: { breath, motion, heart } });
+  } catch (err) {
+    console.error('[admin/teams/:id/overview]', err);
     res.status(500).json({ error: 'failed' });
   }
 });
