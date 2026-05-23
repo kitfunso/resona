@@ -201,9 +201,22 @@ Backbone for a real product. Demo-flavoured paths removed in Phase A; Phase B re
 
 What's intentionally NOT in this phase: admin/HR dashboard, time-series trend UI, anonymized team aggregates, SSO, real email sender (Resend / Mailgun / SES integration), production deploy (Fly / Render config), DPA / privacy policy text. Those land in the next plan.
 
+### Admin-dashboard Phase A: data model + bootstrap endpoints, COMPLETE (2026-05-23) ✅
+
+Schema + admin-token bootstrap for the org-admin surface. The aggregate read API (admin-dashboard Phase B), the dashboard UI (Phase C), and the employee history view (Phase D) ship as separate episodes.
+
+- [x] `server/migrations/003_admin.sql`: `role` on users (CHECK member|admin, default member); `teams` (org_id FK CASCADE, name CHECK + UNIQUE(org_id, lower(name)), UNIQUE(id, org_id)); `team_memberships` (denormalised org_id + composite FKs to users(id, org_id) and teams(id, org_id), so cross-org rows are unrepresentable at the schema, not just the handler); `role_grants` audit table (CHECK-constrained granted_by accepts 'admin_token' or 'session:%').
+- [x] `server/middleware-auth.js`: `loadCurrentUser` now selects `users.role`; flows through `/api/me` automatically.
+- [x] `server/index.js`: POST `/api/admin/users/:id/role` (UUID-pre-validated, atomic UPDATE + role_grants INSERT, console.info audit line); POST `/api/admin/teams` (orgSlug -> id, 23505 -> 409 on duplicate name); POST `/api/admin/teams/:id/members` (UUID-pre-validated, handler cross-org check + 23503 -> 400 defence-in-depth, 23P01 deliberately not caught). All gated by adminLimiter + requireAdmin.
+- [x] `server/test-admin-schema.js`: 17 `information_schema` assertions including the CASCADE `delete_rule` on every new FK (Article 17 / right-to-erasure path).
+- [x] `server/test-admin-endpoints.js`: 15 node --test integration tests against real PG, including the schema-level cross-org INSERT regression (asserts PG code `23503`) and 22P02 -> 400 regressions for malformed UUIDs.
+- Built via /dev-framework-rl episode 01KSA2C6YSMSFFDE0X37PZ3EK0. plan-eng-critic round 1 FAIL 58 surfaced a cross-org leak the original draft permitted at the schema; revised PASS 84. code-review PASS 88. independent-review PASS 86 (one med 22P02 -> 400 fixed at root + regression tests added).
+
+What's intentionally NOT in this phase: aggregate read API + min-N suppression (admin-dashboard Phase B), admin dashboard UI (Phase C), employee history view (Phase D), self-service org-admin onboarding (deferred per plan).
+
 ### Next plan (TBD)
 
-Admin-facing surface: who reads the aggregate data, what they see, how identity is protected. This needs product decisions (run /office-hours first).
+Admin-dashboard Phase B: the privacy-critical aggregate read API with min-N=5 suppression, org-scoped reads, and `requireOrgAdmin` session middleware. Phase A's `role_grants` audit table and composite-FK tenant isolation are the foundation Phase B reads on top of.
 
 ## Known issues
 
