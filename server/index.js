@@ -634,6 +634,12 @@ const ETHNICITY_VALUES = new Set([
   'South Asian', 'Southeast Asian', 'Middle Eastern', 'Indigenous', 'Mixed', 'Other',
 ]);
 
+// Module-scoped cap for GET /api/me/check-ins. Behaviour is "clamp, never
+// 400": invalid input degrades to the default 50, matching the existing
+// PATCH /api/me tolerance for partial / malformed payloads.
+const ME_CHECK_INS_DEFAULT_LIMIT = 50;
+const ME_CHECK_INS_MAX_LIMIT = 200;
+
 app.patch('/api/me', requireAuth, async (req, res) => {
   const { name, dob, heightCm, sex, ethnicity } = req.body ?? {};
   const allowed = {};
@@ -665,6 +671,58 @@ app.patch('/api/me', requireAuth, async (req, res) => {
     throw err;
   }
   res.json({ user: await loadCurrentUser(req.auth.userId) });
+});
+
+// Personal check-in history. requireAuth is sufficient gating: this is an
+// authed personal-history read scoped to req.auth.userId, and auth_codes
+// already rate-limits the path to acquire a session, so no additional
+// limiter is layered on. The handler returns an explicit allowlist of
+// fields per row; the raw check_ins.payload JSONB is projected per-kind
+// in SQL and never leaves the server wholesale (Article 5(1)(c)).
+app.get('/api/me/check-ins', requireAuth, async (req, res) => {
+  const rawLimit = req.query.limit;
+  const parsed = Number.parseInt(rawLimit, 10);
+  let limit;
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    limit = ME_CHECK_INS_DEFAULT_LIMIT;
+  } else if (parsed > ME_CHECK_INS_MAX_LIMIT) {
+    limit = ME_CHECK_INS_MAX_LIMIT;
+  } else {
+    limit = parsed;
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         id,
+         kind,
+         created_at,
+         CASE kind
+           WHEN 'breath' THEN payload->'personalReport'->>'headline'
+           WHEN 'motion' THEN payload->'neuroReport'->>'headline'
+           WHEN 'heart'  THEN payload->'heartReport'->>'headline'
+           ELSE NULL
+         END AS headline
+       FROM check_ins
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [req.auth.userId, limit],
+    );
+    const checkIns = rows.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+      headline: row.headline,
+    }));
+    res.json({
+      checkIns,
+      limit,
+      truncated: checkIns.length === limit,
+    });
+  } catch (err) {
+    console.error('[me/check-ins]', err);
+    res.status(500).json({ error: 'failed' });
+  }
 });
 
 // -----------------------------------------------------------------------------

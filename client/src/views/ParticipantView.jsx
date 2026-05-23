@@ -7,6 +7,7 @@ import ProfileSetupView from './ProfileSetupView.jsx';
 import ResultsView, { CoachingCard } from './ResultsView.jsx';
 import NeuroView from './NeuroView.jsx';
 import HeartView from './HeartView.jsx';
+import HistoryView from './HistoryView.jsx';
 import { logout } from '../auth.js';
 
 const DURATION_MS = 6000;
@@ -62,6 +63,28 @@ const css = `
     text-align: right;
     line-height: 1.4;
     max-width: 12rem;
+  }
+  .r-chrome-actions {
+    display: flex; align-items: center; gap: var(--s-2);
+  }
+  .r-chrome-link {
+    appearance: none; background: transparent; border: none;
+    color: var(--bone-3);
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: var(--s-3);
+    text-decoration: none;
+    transition: color 0.15s, border-color 0.15s;
+    border-bottom: 1px solid transparent;
+    line-height: 1;
+  }
+  .r-chrome-link:hover {
+    color: var(--brass);
+    border-bottom-color: var(--brass);
   }
 
   /* ===== Hero block ===== */
@@ -657,7 +680,18 @@ export default function ParticipantView({ user, onSignOut }) {
           </span>
         </div>
         <div className="r-chrome-disclaimer">Screening tool<br />not a diagnosis</div>
-        <button className="r-back" style={{ marginTop: 0 }} onClick={handleSignOut}>Sign out</button>
+        <div className="r-chrome-actions">
+          {stage !== 'history' && (
+            <button
+              type="button"
+              className="r-chrome-link"
+              onClick={() => setStage('history')}
+            >
+              History
+            </button>
+          )}
+          <button className="r-back" style={{ marginTop: 0 }} onClick={handleSignOut}>Sign out</button>
+        </div>
       </header>
 
       {(stage === 'blow' || stage === 'armed' || stage === 'recording' || stage === 'analyzing') && (
@@ -756,6 +790,7 @@ export default function ParticipantView({ user, onSignOut }) {
           onStartOver={resetToBlow}
           onNeuro={() => setStage('neuro')}
           onHeart={() => setStage('heart')}
+          onHistory={() => setStage('history')}
         />
       )}
 
@@ -771,6 +806,14 @@ export default function ParticipantView({ user, onSignOut }) {
         <HeartView
           demographics={demographics}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
+        />
+      )}
+
+      {stage === 'history' && (
+        <HistoryView
+          onBack={() => setStage(estimate ? 'results' : 'blow')}
+          onBreath={() => setStage('blow')}
+          onHeart={() => setStage('heart')}
         />
       )}
 
