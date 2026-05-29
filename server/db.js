@@ -25,6 +25,13 @@ export const pool = new pg.Pool({
   host: parsed.host || process.env.PGHOST || '/var/run/postgresql',
   port: parsed.port ? Number(parsed.port) : 5432,
   password: parsed.password || undefined,
+  // Pool tuning (DB-4): bound the pool and fail fast. The pg defaults are
+  // max=10 but idle/connection timeouts of 0 (idle clients live forever, a
+  // connect waits indefinitely). Cap the pool and time out connects so a DB
+  // hiccup surfaces as an error instead of a hung request.
+  max: Number(process.env.PG_POOL_MAX) || 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
 });
 
 // Arbitrary fixed key for the migration advisory lock. Any two processes
