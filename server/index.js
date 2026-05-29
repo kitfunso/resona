@@ -20,11 +20,9 @@ import {
   scrubReport,
 } from './reports.js';
 import {
-  EFFORT_CLASSIFIER_SYSTEM,
   PERSONAL_REPORT_SYSTEM,
   NEURO_REPORT_SYSTEM,
   HEART_REPORT_SYSTEM,
-  buildClassifierUserMessage,
   buildPersonalReportUserMessage,
   buildNeuroReportUserMessage,
   buildHeartReportUserMessage,

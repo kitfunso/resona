@@ -57,6 +57,18 @@ test('users.email is globally unique, case-insensitively', async () => {
   assert.match(rows[0].indexdef, /lower\(email\)/i);
 });
 
+test('check_ins has the (org_id, kind, created_at) aggregate index (DB-1)', async () => {
+  const { rows } = await pool.query(`
+    SELECT indexdef FROM pg_indexes
+    WHERE schemaname = 'public' AND tablename = 'check_ins'
+      AND indexname = 'check_ins_org_kind_created_idx'
+  `);
+  assert.equal(rows.length, 1, 'check_ins_org_kind_created_idx missing');
+  assert.match(rows[0].indexdef, /org_id/);
+  assert.match(rows[0].indexdef, /kind/);
+  assert.match(rows[0].indexdef, /created_at/);
+});
+
 test('check_ins composite FK rejects a cross-org row with code 23503 (DB-2)', async () => {
   const { rows: oa } = await pool.query(
     `INSERT INTO orgs (slug, name) VALUES ('schema-fk-a', 'Schema FK A')
