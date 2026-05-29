@@ -20,6 +20,7 @@ import {
   buildPersonalReportUserMessage,
   buildNeuroReportUserMessage,
   buildHeartReportUserMessage,
+  buildDemographics,
 } from './prompts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -381,16 +382,8 @@ function scrubReport(report) {
 app.post('/api/analyze-neuro', requireAuth, async (req, res) => {
   const user = await loadCurrentUser(req.auth.userId);
   if (!user) return res.status(404).json({ error: 'user not found' });
-  const ageYears = user.dob
-    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
-    : null;
-  const demographics = {
-    age: ageYears,
-    sex: user.sex,
-    heightCm: user.height_cm,
-    ethnicity: user.ethnicity,
-  };
-  if (!ageYears || !demographics.sex) {
+  const demographics = buildDemographics(user);
+  if (!demographics.ageYears || !demographics.sex) {
     return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
   }
 
@@ -434,16 +427,8 @@ app.post('/api/analyze-neuro', requireAuth, async (req, res) => {
 app.post('/api/analyze-heart', requireAuth, async (req, res) => {
   const user = await loadCurrentUser(req.auth.userId);
   if (!user) return res.status(404).json({ error: 'user not found' });
-  const ageYears = user.dob
-    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
-    : null;
-  const demographics = {
-    age: ageYears,
-    sex: user.sex,
-    heightCm: user.height_cm,
-    ethnicity: user.ethnicity,
-  };
-  if (!ageYears || !demographics.sex) {
+  const demographics = buildDemographics(user);
+  if (!demographics.ageYears || !demographics.sex) {
     return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
   }
 
@@ -500,16 +485,8 @@ app.post('/api/analyze-heart', requireAuth, async (req, res) => {
 app.post('/api/analyze-blow', requireAuth, async (req, res) => {
   const user = await loadCurrentUser(req.auth.userId);
   if (!user) return res.status(404).json({ error: 'user not found' });
-  const ageYears = user.dob
-    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
-    : null;
-  const demographics = {
-    age: ageYears,
-    sex: user.sex,
-    heightCm: user.height_cm,
-    ethnicity: user.ethnicity,
-  };
-  if (!ageYears || !demographics.sex || !demographics.heightCm) {
+  const demographics = buildDemographics(user);
+  if (!demographics.ageYears || !demographics.sex || !demographics.heightCm) {
     return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
   }
 
@@ -833,13 +810,25 @@ app.post('/api/admin/users/:id/role', adminLimiter, requireAdmin, async (req, re
   if (!UUID_RE.test(id)) {
     return res.status(400).json({ error: 'invalid id' });
   }
-  const { role } = req.body ?? {};
+  const { role, orgSlug } = req.body ?? {};
   if (typeof role !== 'string' || !ROLE_VALUES.has(role)) {
     return res.status(400).json({ error: 'invalid role' });
   }
+  // Org scoping: the global ADMIN_TOKEN is a bootstrap secret, so the caller
+  // must name the org the target belongs to, and the lookup + update are bound
+  // to (id, org_id). This makes any cross-org grant explicit and auditable and
+  // blocks accidental promotion of a same-id user in the wrong tenant. (Fully
+  // retiring the global token for session RBAC - granted_by 'session:<admin>' -
+  // is tracked as follow-up.)
+  if (typeof orgSlug !== 'string' || orgSlug.length === 0) {
+    return res.status(400).json({ error: 'orgSlug required' });
+  }
+  const { rows: orgs } = await pool.query('SELECT id FROM orgs WHERE slug = $1', [orgSlug]);
+  if (orgs.length === 0) return res.status(404).json({ error: 'org not found' });
+  const orgId = orgs[0].id;
   const { rows: existing } = await pool.query(
-    'SELECT id, email, role FROM users WHERE id = $1',
-    [id],
+    'SELECT id, email, role FROM users WHERE id = $1 AND org_id = $2',
+    [id, orgId],
   );
   if (existing.length === 0) return res.status(404).json({ error: 'user not found' });
   const current = existing[0];
@@ -850,7 +839,7 @@ app.post('/api/admin/users/:id/role', adminLimiter, requireAdmin, async (req, re
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
+    await client.query('UPDATE users SET role = $1 WHERE id = $2 AND org_id = $3', [role, id, orgId]);
     await client.query(
       `INSERT INTO role_grants (user_id, granted_role, granted_by)
        VALUES ($1, $2, 'admin_token')`,
@@ -864,8 +853,45 @@ app.post('/api/admin/users/:id/role', adminLimiter, requireAdmin, async (req, re
   } finally {
     client.release();
   }
-  console.info(`[role-grant] user=${id} role=${role} by=admin_token`);
+  console.info(`[role-grant] user=${id} org=${orgId} role=${role} by=admin_token`);
   res.json({ user: { id: current.id, email: current.email, role } });
+});
+
+// DELETE /api/admin/users/:id
+// Right-to-erasure (UK GDPR Art 17) for an org admin acting within their OWN
+// org. Session-RBAC (requireOrgAdmin), NOT the global ADMIN_TOKEN: the org is
+// taken from req.currentUser.org_id, never from input, so an admin can only
+// erase users in their own tenant. The DELETE is bound to (id, org_id) and the
+// ON DELETE CASCADE chain (check_ins, team_memberships, role_grants) purges all
+// of the user's data in one statement. A [user-erase] line is the Art 5(2)
+// accountability surface; the deleted user's own role_grants cascade away with
+// them, which is the correct erasure behaviour.
+//
+// Residual scope NOT covered here (documented for the DPA): server access logs,
+// LLM trace files, and any external sub-processor copies are not purged by this
+// route.
+app.delete('/api/admin/users/:id', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) {
+    return res.status(400).json({ error: 'invalid id' });
+  }
+  const orgId = req.currentUser.org_id;
+  try {
+    const { rowCount } = await pool.query(
+      'DELETE FROM users WHERE id = $1 AND org_id = $2',
+      [id, orgId],
+    );
+    if (rowCount === 0) {
+      // The user does not exist OR belongs to another org. Same 404 either way
+      // so an admin cannot probe cross-org user ids.
+      return res.status(404).json({ error: 'user not found' });
+    }
+    console.info(`[user-erase] actor=${req.currentUser.id} org=${orgId} deleted=${id}`);
+    res.json({ ok: true, deleted: id });
+  } catch (err) {
+    console.error('[admin/delete-user]', err);
+    res.status(500).json({ error: 'failed' });
+  }
 });
 
 app.post('/api/admin/teams', adminLimiter, requireAdmin, async (req, res) => {

@@ -11,6 +11,11 @@ let server;
 let baseUrl;
 
 test.before(async () => {
+  // Disable adminLimiter for the suite: it hits 127.0.0.1 from one process at
+  // high throughput. The limiter's skip predicate is () => NODE_ENV === 'test',
+  // re-evaluated per request, so setting it here is sufficient (mirrors
+  // test-aggregates.js). Production traffic never sets NODE_ENV=test.
+  process.env.NODE_ENV = 'test';
   assert.ok(ADMIN_TOKEN && ADMIN_TOKEN.length >= 32, 'ADMIN_TOKEN must be set with length >= 32 for these tests');
   await migrate();
   server = http.createServer(app);
@@ -132,11 +137,11 @@ test('POST /role with invalid role -> 400', async () => {
 });
 
 test('POST /role for a missing user -> 404', async () => {
-  await seed('role-missing');
+  const { orgA } = await seed('role-missing');
   // A well-formed UUID that doesn't exist in the users table.
   const fakeId = '00000000-0000-0000-0000-000000000000';
   const res = await req('POST', `/api/admin/users/${fakeId}/role`, {
-    body: { role: 'admin' },
+    body: { role: 'admin', orgSlug: orgA.slug },
     adminToken: ADMIN_TOKEN,
   });
   assert.equal(res.status, 404);
@@ -167,9 +172,9 @@ test('POST /teams/:id/members with a malformed :id -> 400', async () => {
 });
 
 test('POST /role happy path: 200, role updated, single role_grants row written', async () => {
-  const { a1 } = await seed('role-happy');
+  const { orgA, a1 } = await seed('role-happy');
   const res = await req('POST', `/api/admin/users/${a1.id}/role`, {
-    body: { role: 'admin' },
+    body: { role: 'admin', orgSlug: orgA.slug },
     adminToken: ADMIN_TOKEN,
   });
   assert.equal(res.status, 200);
@@ -191,10 +196,10 @@ test('POST /role happy path: 200, role updated, single role_grants row written',
 });
 
 test('POST /role no-op when role unchanged: 200, no new audit row', async () => {
-  const { a1 } = await seed('role-noop');
+  const { orgA, a1 } = await seed('role-noop');
   // First call: promote to admin, leaves one audit row.
   const r1 = await req('POST', `/api/admin/users/${a1.id}/role`, {
-    body: { role: 'admin' },
+    body: { role: 'admin', orgSlug: orgA.slug },
     adminToken: ADMIN_TOKEN,
   });
   assert.equal(r1.status, 200);
@@ -205,7 +210,7 @@ test('POST /role no-op when role unchanged: 200, no new audit row', async () => 
   assert.equal(before[0].n, 1);
   // Second call with the same role: should be a no-op, no new audit row.
   const r2 = await req('POST', `/api/admin/users/${a1.id}/role`, {
-    body: { role: 'admin' },
+    body: { role: 'admin', orgSlug: orgA.slug },
     adminToken: ADMIN_TOKEN,
   });
   assert.equal(r2.status, 200);
@@ -214,6 +219,33 @@ test('POST /role no-op when role unchanged: 200, no new audit row', async () => 
     [a1.id],
   );
   assert.equal(after[0].n, 1, 'no-op must not insert another row');
+});
+
+test('POST /role requires orgSlug -> 400 when missing (SEC-1)', async () => {
+  const { a1 } = await seed('role-no-org');
+  const res = await req('POST', `/api/admin/users/${a1.id}/role`, {
+    body: { role: 'admin' },
+    adminToken: ADMIN_TOKEN,
+  });
+  assert.equal(res.status, 400);
+  const body = await res.json();
+  assert.equal(body.error, 'orgSlug required');
+});
+
+test('POST /role cannot promote a user via a different org slug -> 404 (SEC-1)', async () => {
+  // A token holder naming org A must not flip a user who belongs to org B.
+  // The lookup + update are bound to (id, org_id), so the cross-org target is
+  // invisible and stays a member.
+  const { orgA, b1 } = await seed('role-cross');
+  const res = await req('POST', `/api/admin/users/${b1.id}/role`, {
+    body: { role: 'admin', orgSlug: orgA.slug },
+    adminToken: ADMIN_TOKEN,
+  });
+  assert.equal(res.status, 404);
+  const body = await res.json();
+  assert.equal(body.error, 'user not found');
+  const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [b1.id]);
+  assert.equal(rows[0].role, 'member', 'cross-org target must remain a member');
 });
 
 // POST /api/admin/teams ------------------------------------------------------

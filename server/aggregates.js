@@ -104,8 +104,8 @@ export async function orgParticipation(orgId, sinceDays) {
 //   (composite-key team_memberships filter on (team_id, org_id) is the
 //   SELECT-side mirror of Phase A's INSERT-side composite-FK guard).
 //
-// Dual-layer suppression:
-//   - If the total count n < MIN_GROUP -> whole response = SUPPRESSED.
+// Dual-layer suppression (all counts are distinct employees, not rows):
+//   - If fewer than MIN_GROUP distinct employees (n) -> whole response = SUPPRESSED.
 //   - Otherwise return {buckets, n} where each bucket whose count is in
 //     [1, MIN_GROUP-1] is replaced by {label, count: SUPPRESSED}. The
 //     label stays visible (it's not identifying); the count is the
@@ -123,33 +123,45 @@ export async function modalityDistribution(orgId, kind, sinceDays, opts = {}) {
   // from any request input - the only thing the caller picks is `kind`.
   const bucketCase = buildBucketCase(kind);
 
-  // Single GROUP BY: one query, one pass. n is derived from SUM in JS.
+  // k-anonymity is over PEOPLE, not check-in rows: one prolific employee must
+  // not clear the threshold on their own. Every count - the gate n and each
+  // bucket - is COUNT(DISTINCT user_id). n is the distinct employees in the
+  // window overall, computed in the CTE so a user who spans buckets is counted
+  // once (summing per-bucket distincts would over-count and under-suppress).
   const params = [orgId, kind, sinceDays];
-  let sql = `
-    SELECT
-      ${bucketCase} AS bucket,
-      COUNT(*)::int AS count
-    FROM check_ins
-    WHERE org_id = $1
-      AND kind = $2
-      AND created_at >= now() - ($3::int * interval '1 day')
-  `;
+  let teamScope = '';
   if (teamId !== undefined && teamId !== null) {
     params.push(teamId);
     // Composite-key team scope: ($4, $1) matches the (team_id, org_id)
     // pair on team_memberships. Filtering on team_id alone would
     // re-introduce the cross-org leak Phase A's composite FK prevents
     // at INSERT time.
-    sql += `
+    teamScope = `
       AND user_id IN (
         SELECT user_id FROM team_memberships
          WHERE team_id = $4 AND org_id = $1
-      )
-    `;
+      )`;
   }
-  sql += ` GROUP BY bucket`;
+  const sql = `
+    WITH filtered AS (
+      SELECT user_id, ${bucketCase} AS bucket
+      FROM check_ins
+      WHERE org_id = $1
+        AND kind = $2
+        AND created_at >= now() - ($3::int * interval '1 day')${teamScope}
+    )
+    SELECT
+      bucket,
+      COUNT(DISTINCT user_id)::int AS count,
+      (SELECT COUNT(DISTINCT user_id)::int FROM filtered) AS n
+    FROM filtered
+    GROUP BY bucket`;
 
   const { rows } = await pool.query(sql, params);
+
+  // Gate on distinct employees overall (0 when no rows matched the window).
+  const n = rows.length > 0 ? rows[0].n : 0;
+  if (n < MIN_GROUP) return SUPPRESSED;
 
   // Build a stable bucket set: every band label appears in the response
   // (with count 0 if no rows landed there). Buckets land deterministically
@@ -159,9 +171,6 @@ export async function modalityDistribution(orgId, kind, sinceDays, opts = {}) {
     label: band.label,
     count: counts.get(band.label) ?? 0,
   }));
-
-  const n = buckets.reduce((acc, b) => acc + b.count, 0);
-  if (n < MIN_GROUP) return SUPPRESSED;
 
   // Per-bucket suppression: replace count with sentinel if in [1, MIN_GROUP-1].
   // Count 0 stays as 0 (no-one to identify); count >= MIN_GROUP stays as is.

@@ -8,6 +8,25 @@
 //   3. GP_LETTER          , UK junior-doctor referral letter (only if valid)
 //   4. NARRATOR           , one-sentence projector hype (Phase 3)
 
+// Single source of truth for the demographics object every prompt builder
+// consumes. Returns the exact shape the builders read (ageYears, name, sex,
+// heightCm, ethnicity), computing age from the user's dob. The three analyze
+// handlers previously hand-built this with the wrong key (`age` instead of
+// `ageYears`) and never set `name`, so every LLM report silently received
+// ageYears:null / name:null.
+export function buildDemographics(user) {
+  const ageYears = user?.dob
+    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
+    : null;
+  return {
+    ageYears,
+    name: user?.name ?? null,
+    sex: user?.sex ?? null,
+    heightCm: user?.height_cm ?? null,
+    ethnicity: user?.ethnicity ?? null,
+  };
+}
+
 export const EFFORT_CLASSIFIER_SYSTEM = `You are the effort-classification layer of Resona, a phone-based acoustic-spirometry screening tool. You are NOT a doctor and must not offer medical advice.
 
 Your job: decide whether a forced-exhalation attempt was a valid spirometry effort or a bad attempt (short puff, coughing, talking, silence, invalid mic placement). You will receive extracted acoustic features and the user's demographics. You will NOT receive raw audio.

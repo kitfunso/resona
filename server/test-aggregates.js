@@ -151,6 +151,26 @@ test('top-level suppression: n<MIN_GROUP suppresses; n>=MIN_GROUP returns', asyn
 });
 
 // ---------------------------------------------------------------------------
+// Case 1b (PRIV-1): suppression counts DISTINCT employees, not check-in rows.
+// ---------------------------------------------------------------------------
+test('distinct-employee suppression: one prolific user cannot clear the threshold', async () => {
+  const { org, users } = await seedOrg('distinct', { admins: 1, members: 5 });
+  // One employee checks in 6 times in the same band. Rows = 6 (>= MIN_GROUP)
+  // but distinct employees = 1, so the response MUST be suppressed.
+  for (let i = 0; i < 6; i += 1) await insertCheckIn(users[1], org.id, 'heart', 70);
+  let result = await modalityDistribution(org.id, 'heart', 30);
+  assert.deepEqual(result, SUPPRESSED, '1 user x6 check-ins -> distinct=1 -> SUPPRESSED');
+
+  // Add four more DISTINCT employees (one check-in each) -> 5 distinct total.
+  for (let i = 2; i <= 5; i += 1) await insertCheckIn(users[i], org.id, 'heart', 70);
+  result = await modalityDistribution(org.id, 'heart', 30);
+  assert.equal(result.suppressed, undefined, '5 distinct employees -> visible');
+  assert.equal(result.n, 5, 'n counts distinct employees, not the 10 rows');
+  const normal = result.buckets.find((b) => b.label === 'normal');
+  assert.equal(normal.count, 5, 'bucket count is distinct employees');
+});
+
+// ---------------------------------------------------------------------------
 // Case 2: Per-bucket suppression (the round-0 CRIT).
 // ---------------------------------------------------------------------------
 test('per-bucket suppression: small bucket suppressed even when total>=MIN_GROUP', async () => {

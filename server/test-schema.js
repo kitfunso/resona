@@ -57,6 +57,37 @@ test('users.email is globally unique, case-insensitively', async () => {
   assert.match(rows[0].indexdef, /lower\(email\)/i);
 });
 
+test('check_ins composite FK rejects a cross-org row with code 23503 (DB-2)', async () => {
+  const { rows: oa } = await pool.query(
+    `INSERT INTO orgs (slug, name) VALUES ('schema-fk-a', 'Schema FK A')
+       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+  );
+  const { rows: ob } = await pool.query(
+    `INSERT INTO orgs (slug, name) VALUES ('schema-fk-b', 'Schema FK B')
+       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+  );
+  const orgAId = oa[0].id;
+  const orgBId = ob[0].id;
+  await pool.query(`DELETE FROM users WHERE lower(email) = 'schema-fk@example.com'`);
+  const { rows: u } = await pool.query(
+    `INSERT INTO users (org_id, email) VALUES ($1, 'schema-fk@example.com') RETURNING id`,
+    [orgAId],
+  );
+  const userId = u[0].id;
+  // The user belongs to org A; a check-in claiming org B has no (id, org_id)
+  // target in users and must violate the composite FK from migration 004.
+  let caught;
+  try {
+    await pool.query(
+      `INSERT INTO check_ins (user_id, org_id, kind, payload) VALUES ($1, $2, 'heart', '{}'::jsonb)`,
+      [userId, orgBId],
+    );
+  } catch (err) { caught = err; }
+  assert.ok(caught, 'cross-org check_ins INSERT must error');
+  assert.equal(caught.code, '23503', 'expected composite FK violation 23503');
+  await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+});
+
 test.after(async () => {
   await pool.end();
 });
