@@ -30,6 +30,11 @@ test.after(async () => {
 });
 
 async function seedOrg(slug, name) {
+  // Clean dependent rows so reruns are isolated. teams are org-scoped (not
+  // user-scoped), so they do NOT cascade from the users delete; drop them and
+  // their memberships explicitly or a second run collides on teams_org_name_idx.
+  await pool.query(`DELETE FROM team_memberships WHERE org_id IN (SELECT id FROM orgs WHERE slug = $1)`, [slug]);
+  await pool.query(`DELETE FROM teams WHERE org_id IN (SELECT id FROM orgs WHERE slug = $1)`, [slug]);
   await pool.query(
     `DELETE FROM users WHERE org_id IN (SELECT id FROM orgs WHERE slug = $1)`,
     [slug],
