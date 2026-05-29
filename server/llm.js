@@ -99,6 +99,36 @@ export async function askGLMJson(messages, opts = {}) {
   }
 }
 
+// Retry wrapper around askGLMJson for the analyze-* handlers: up to 3 attempts
+// with linear backoff, retrying only transient failures (429 / connection /
+// timeout / reset). Lives here next to askGLMJson, its only dependency.
+export async function askGLMJsonWithRetry(messages, options) {
+  const maxAttempts = 3;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await askGLMJson(messages, options);
+    } catch (err) {
+      lastErr = err;
+      const msg = (err?.message || '').toLowerCase();
+      const status = err?.status;
+      const retryable =
+        status === 429 ||
+        msg.includes('connection') ||
+        msg.includes('fetch failed') ||
+        msg.includes('timeout') ||
+        msg.includes('econnreset') ||
+        msg.includes('socket hang up') ||
+        msg.includes('rate limit');
+      if (!retryable || attempt === maxAttempts) throw err;
+      const delayMs = 800 * attempt;
+      console.warn(`[glm-retry] ${options.tag}: attempt ${attempt} failed (${err.message}), waiting ${delayMs}ms`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 // Kept for API compatibility; OpenAI streaming is not used by current callers.
 export const askGLMStream = askGLMText;
 
