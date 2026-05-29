@@ -23,6 +23,6 @@ npm run test:gpt
 ## Never Do
 - Never upload raw audio, video, motion streams, or GPS by default.
 - Never make diagnostic or treatment claims from wellness signals.
-- Never commit `.env`, `gpt-trace.log`, raw recordings, or identifiable health data.
+- Never commit `.env`, `llm-trace.log`, raw recordings, or identifiable health data.
 - Never build team reporting that exposes individual sensitive measurements without consent.
 - Never add server-side retention of raw sensor data without an explicit privacy review.
