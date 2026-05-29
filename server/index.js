@@ -478,22 +478,43 @@ app.post('/api/admin/orgs', adminLimiter, requireAdmin, async (req, res) => {
 });
 
 app.post('/api/admin/users', adminLimiter, requireAdmin, async (req, res) => {
-  const { orgSlug, email } = req.body ?? {};
+  const { orgSlug, email, role } = req.body ?? {};
   if (typeof orgSlug !== 'string' || typeof email !== 'string' || !email.includes('@')) {
     return res.status(400).json({ error: 'invalid input' });
   }
+  // Optional role at creation (defaults to 'member'). This is the ONLY
+  // token-gated way to mint an org's first admin: ongoing role changes are
+  // session-RBAC (see POST /api/admin/users/:id/role), so without this the
+  // first admin would be unreachable (no existing admin to grant the role).
+  const newRole = role === undefined ? 'member' : role;
+  if (typeof newRole !== 'string' || !ROLE_VALUES.has(newRole)) {
+    return res.status(400).json({ error: 'invalid role' });
+  }
   const { rows: orgs } = await pool.query('SELECT id FROM orgs WHERE slug = $1', [orgSlug]);
   if (orgs.length === 0) return res.status(404).json({ error: 'org not found' });
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
-      'INSERT INTO users (org_id, email) VALUES ($1, lower($2)) RETURNING id, email',
-      [orgs[0].id, email],
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      'INSERT INTO users (org_id, email, role) VALUES ($1, lower($2), $3) RETURNING id, email, role',
+      [orgs[0].id, email, newRole],
     );
+    if (newRole === 'admin') {
+      await client.query(
+        `INSERT INTO role_grants (user_id, granted_role, granted_by)
+         VALUES ($1, 'admin', 'admin_token')`,
+        [rows[0].id],
+      );
+    }
+    await client.query('COMMIT');
     res.json({ user: rows[0] });
   } catch (err) {
+    await client.query('ROLLBACK');
     if (err.code === '23505') return res.status(409).json({ error: 'email already exists' });
     console.error('[admin/users]', err);
     res.status(500).json({ error: 'failed' });
+  } finally {
+    client.release();
   }
 });
 
@@ -519,56 +540,70 @@ function isValidTeamName(name) {
     && TEAM_NAME_RE.test(name);
 }
 
-app.post('/api/admin/users/:id/role', adminLimiter, requireAdmin, async (req, res) => {
+// Session RBAC (SEC-1): role grants are no longer the global ADMIN_TOKEN's job.
+// An org admin (requireOrgAdmin) manages roles ONLY within their own org -
+// orgId comes from req.currentUser, never from input - so a leaked token can no
+// longer mint admins anywhere. granted_by records the acting admin. The org's
+// first admin is bootstrapped via POST /api/admin/users {role:'admin'} (token).
+app.post('/api/admin/users/:id/role', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) {
     return res.status(400).json({ error: 'invalid id' });
   }
-  const { role, orgSlug } = req.body ?? {};
+  const { role } = req.body ?? {};
   if (typeof role !== 'string' || !ROLE_VALUES.has(role)) {
     return res.status(400).json({ error: 'invalid role' });
   }
-  // Org scoping: the global ADMIN_TOKEN is a bootstrap secret, so the caller
-  // must name the org the target belongs to, and the lookup + update are bound
-  // to (id, org_id). This makes any cross-org grant explicit and auditable and
-  // blocks accidental promotion of a same-id user in the wrong tenant. (Fully
-  // retiring the global token for session RBAC - granted_by 'session:<admin>' -
-  // is tracked as follow-up.)
-  if (typeof orgSlug !== 'string' || orgSlug.length === 0) {
-    return res.status(400).json({ error: 'orgSlug required' });
-  }
-  const { rows: orgs } = await pool.query('SELECT id FROM orgs WHERE slug = $1', [orgSlug]);
-  if (orgs.length === 0) return res.status(404).json({ error: 'org not found' });
-  const orgId = orgs[0].id;
-  const { rows: existing } = await pool.query(
-    'SELECT id, email, role FROM users WHERE id = $1 AND org_id = $2',
-    [id, orgId],
-  );
-  if (existing.length === 0) return res.status(404).json({ error: 'user not found' });
-  const current = existing[0];
-  if (current.role === role) {
-    // No-op: role unchanged, no audit row written. Spec A2 Step 1 contract.
-    return res.json({ user: { id: current.id, email: current.email, role: current.role } });
-  }
+  const orgId = req.currentUser.org_id;
+  const actorId = req.currentUser.id;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Serialize role/erasure mutations for this org on the org row so the
+    // last-admin count below cannot race a concurrent demotion/deletion.
+    await client.query('SELECT 1 FROM orgs WHERE id = $1 FOR UPDATE', [orgId]);
+    const { rows: existing } = await client.query(
+      'SELECT id, email, role FROM users WHERE id = $1 AND org_id = $2',
+      [id, orgId],
+    );
+    if (existing.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'user not found' });
+    }
+    const current = existing[0];
+    if (current.role === role) {
+      // No-op: role unchanged, no audit row written.
+      await client.query('ROLLBACK');
+      return res.json({ user: { id: current.id, email: current.email, role: current.role } });
+    }
+    // Last-admin guard: an org must always keep >= 1 admin. Blocks demoting the
+    // org's only admin (covers self-demotion and demoting the last other admin).
+    if (current.role === 'admin' && role !== 'admin') {
+      const { rows: admins } = await client.query(
+        `SELECT COUNT(*)::int AS n FROM users WHERE org_id = $1 AND role = 'admin'`,
+        [orgId],
+      );
+      if (admins[0].n <= 1) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'cannot remove the last admin' });
+      }
+    }
     await client.query('UPDATE users SET role = $1 WHERE id = $2 AND org_id = $3', [role, id, orgId]);
     await client.query(
       `INSERT INTO role_grants (user_id, granted_role, granted_by)
-       VALUES ($1, $2, 'admin_token')`,
-      [id, role],
+       VALUES ($1, $2, $3)`,
+      [id, role, `session:${actorId}`],
     );
     await client.query('COMMIT');
+    console.info(`[role-grant] user=${id} org=${orgId} role=${role} by=session:${actorId}`);
+    res.json({ user: { id: current.id, email: current.email, role } });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[admin/role]', err);
-    return res.status(500).json({ error: 'failed' });
+    res.status(500).json({ error: 'failed' });
   } finally {
     client.release();
   }
-  console.info(`[role-grant] user=${id} org=${orgId} role=${role} by=admin_token`);
-  res.json({ user: { id: current.id, email: current.email, role } });
 });
 
 // DELETE /api/admin/users/:id
@@ -590,21 +625,44 @@ app.delete('/api/admin/users/:id', adminLimiter, requireAuth, requireOrgAdmin, a
     return res.status(400).json({ error: 'invalid id' });
   }
   const orgId = req.currentUser.org_id;
+  const client = await pool.connect();
   try {
-    const { rowCount } = await pool.query(
-      'DELETE FROM users WHERE id = $1 AND org_id = $2',
+    await client.query('BEGIN');
+    // Serialize per-org role/erasure mutations on the org row (see /role) so the
+    // last-admin check is race-free.
+    await client.query('SELECT 1 FROM orgs WHERE id = $1 FOR UPDATE', [orgId]);
+    const { rows: target } = await client.query(
+      'SELECT role FROM users WHERE id = $1 AND org_id = $2',
       [id, orgId],
     );
-    if (rowCount === 0) {
+    if (target.length === 0) {
+      await client.query('ROLLBACK');
       // The user does not exist OR belongs to another org. Same 404 either way
       // so an admin cannot probe cross-org user ids.
       return res.status(404).json({ error: 'user not found' });
     }
+    // Last-admin guard: never strand an org with zero admins (covers a sole
+    // admin erasing themselves).
+    if (target[0].role === 'admin') {
+      const { rows: admins } = await client.query(
+        `SELECT COUNT(*)::int AS n FROM users WHERE org_id = $1 AND role = 'admin'`,
+        [orgId],
+      );
+      if (admins[0].n <= 1) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'cannot erase the last admin' });
+      }
+    }
+    await client.query('DELETE FROM users WHERE id = $1 AND org_id = $2', [id, orgId]);
+    await client.query('COMMIT');
     console.info(`[user-erase] actor=${req.currentUser.id} org=${orgId} deleted=${id}`);
     res.json({ ok: true, deleted: id });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('[admin/delete-user]', err);
     res.status(500).json({ error: 'failed' });
+  } finally {
+    client.release();
   }
 });
 

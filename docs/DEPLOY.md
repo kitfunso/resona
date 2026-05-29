@@ -42,7 +42,7 @@ migration step is needed.
 | `DATABASE_URL` | `fly postgres attach` | Postgres connection string. |
 | `OPENAI_API_KEY` | `fly secrets set` | LLM access; the app boots without it but analysis fails. |
 | `SESSION_SECRET` | `fly secrets set` | Min 32 chars. JWT signing key. |
-| `ADMIN_TOKEN` | `fly secrets set` | Min 32 chars. Gates `/api/admin/*`. |
+| `ADMIN_TOKEN` | `fly secrets set` | Min 32 chars. Bootstrap only: gates org/user/team creation. Role grants and user erasure are session-RBAC (an org admin acting in their own org), not token-gated. |
 | `NODE_ENV` | `fly.toml` | `production` — enables static client serving. |
 | `PORT` | `fly.toml` | `3030`, matches `internal_port`. |
 | `ALLOWED_ORIGINS` | `fly.toml` | Comma-separated origins allowed to send credentials. Update to the real domain. |
@@ -59,6 +59,17 @@ curl -X POST https://resona.fly.dev/api/admin/orgs \
   -H "Content-Type: application/json" \
   -H "x-admin-token: <ADMIN_TOKEN>" \
   -d '{"slug":"demo","name":"Demo Co","firstUserEmail":"you@example.com"}'
+```
+
+Then mint that org's first admin. This is the only token-gated way to grant a
+role; every later role change is done by an org admin via their own session
+(`POST /api/admin/users/:id/role`, no token):
+
+```bash
+curl -X POST https://resona.fly.dev/api/admin/users \
+  -H "Content-Type: application/json" \
+  -H "x-admin-token: <ADMIN_TOKEN>" \
+  -d '{"orgSlug":"demo","email":"you@example.com","role":"admin"}'
 ```
 
 ## Health check

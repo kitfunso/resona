@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { app } from './index.js';
 import { pool, migrate } from './db.js';
+import { issueSession, SESSION_COOKIE } from './auth.js';
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 
@@ -36,6 +37,26 @@ function req(method, urlPath, { body, adminToken } = {}) {
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+// Session-cookie request helper for the RBAC role endpoint (SEC-1): /role is no
+// longer token-gated, it requires an org-admin session.
+function sreq(method, urlPath, { body, cookie } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (cookie) headers.Cookie = cookie;
+  return fetch(`${baseUrl}${urlPath}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+async function adminCookie(userId, orgId) {
+  return `${SESSION_COOKIE}=${await issueSession({ userId, orgId })}`;
+}
+
+async function makeOrgAdmin(userId) {
+  await pool.query(`UPDATE users SET role = 'admin' WHERE id = $1`, [userId]);
 }
 
 // Seeds two orgs, each with two users. Returns the ids the tests need.
@@ -103,22 +124,30 @@ async function seed(suffix) {
   };
 }
 
-// Auth gating ----------------------------------------------------------------
+// Auth gating (SEC-1: /role is session-RBAC, not ADMIN_TOKEN) ----------------
 
-test('POST /api/admin/users/:id/role without ADMIN_TOKEN -> 401', async () => {
-  const { a1 } = await seed('auth-missing');
-  const res = await req('POST', `/api/admin/users/${a1.id}/role`, { body: { role: 'admin' } });
+test('POST /api/admin/users/:id/role without a session -> 401', async () => {
+  const { a2 } = await seed('auth-missing');
+  const res = await sreq('POST', `/api/admin/users/${a2.id}/role`, { body: { role: 'admin' } });
   assert.equal(res.status, 401);
 });
 
-test('POST /api/admin/users/:id/role with wrong ADMIN_TOKEN -> 401', async () => {
-  const { a1 } = await seed('auth-wrong');
-  // Same length as the real token but different bytes, so the length-check
-  // short-circuit doesn't fire and we exercise the timing-safe compare.
-  const wrong = 'x'.repeat(ADMIN_TOKEN.length);
-  const res = await req('POST', `/api/admin/users/${a1.id}/role`, {
+test('POST /api/admin/users/:id/role with a member session -> 403', async () => {
+  const { orgA, a1, a2 } = await seed('auth-member');
+  // a1 is a plain member; requireOrgAdmin must reject before the handler runs.
+  const res = await sreq('POST', `/api/admin/users/${a2.id}/role`, {
     body: { role: 'admin' },
-    adminToken: wrong,
+    cookie: await adminCookie(a1.id, orgA.id),
+  });
+  assert.equal(res.status, 403);
+});
+
+test('POST /api/admin/users/:id/role with the ADMIN_TOKEN (no session) -> 401', async () => {
+  // The global token can no longer grant roles: only an org-admin session can.
+  const { a2 } = await seed('auth-token-rejected');
+  const res = await req('POST', `/api/admin/users/${a2.id}/role`, {
+    body: { role: 'admin' },
+    adminToken: ADMIN_TOKEN,
   });
   assert.equal(res.status, 401);
 });
@@ -126,39 +155,38 @@ test('POST /api/admin/users/:id/role with wrong ADMIN_TOKEN -> 401', async () =>
 // POST /api/admin/users/:id/role --------------------------------------------
 
 test('POST /role with invalid role -> 400', async () => {
-  const { a1 } = await seed('role-invalid');
-  const res = await req('POST', `/api/admin/users/${a1.id}/role`, {
+  const { orgA, a1, a2 } = await seed('role-invalid');
+  await makeOrgAdmin(a1.id);
+  const res = await sreq('POST', `/api/admin/users/${a2.id}/role`, {
     body: { role: 'superuser' },
-    adminToken: ADMIN_TOKEN,
+    cookie: await adminCookie(a1.id, orgA.id),
   });
   assert.equal(res.status, 400);
-  const body = await res.json();
-  assert.equal(body.error, 'invalid role');
+  assert.equal((await res.json()).error, 'invalid role');
 });
 
 test('POST /role for a missing user -> 404', async () => {
-  const { orgA } = await seed('role-missing');
-  // A well-formed UUID that doesn't exist in the users table.
+  const { orgA, a1 } = await seed('role-missing');
+  await makeOrgAdmin(a1.id);
+  // A well-formed UUID that doesn't exist in the org.
   const fakeId = '00000000-0000-0000-0000-000000000000';
-  const res = await req('POST', `/api/admin/users/${fakeId}/role`, {
-    body: { role: 'admin', orgSlug: orgA.slug },
-    adminToken: ADMIN_TOKEN,
+  const res = await sreq('POST', `/api/admin/users/${fakeId}/role`, {
+    body: { role: 'admin' },
+    cookie: await adminCookie(a1.id, orgA.id),
   });
   assert.equal(res.status, 404);
-  const body = await res.json();
-  assert.equal(body.error, 'user not found');
+  assert.equal((await res.json()).error, 'user not found');
 });
 
 test('POST /role with a malformed :id -> 400 (not a 500 from PG 22P02)', async () => {
-  // Regression for the review-stage finding: a non-UUID :id used to escape
-  // as PG 22P02 and become a generic 500. It must now return a clean 400.
-  const res = await req('POST', '/api/admin/users/not-a-uuid/role', {
+  const { orgA, a1 } = await seed('role-badid');
+  await makeOrgAdmin(a1.id);
+  const res = await sreq('POST', '/api/admin/users/not-a-uuid/role', {
     body: { role: 'admin' },
-    adminToken: ADMIN_TOKEN,
+    cookie: await adminCookie(a1.id, orgA.id),
   });
   assert.equal(res.status, 400);
-  const body = await res.json();
-  assert.equal(body.error, 'invalid id');
+  assert.equal((await res.json()).error, 'invalid id');
 });
 
 test('POST /teams/:id/members with a malformed :id -> 400', async () => {
@@ -171,81 +199,128 @@ test('POST /teams/:id/members with a malformed :id -> 400', async () => {
   assert.equal(body.error, 'invalid id');
 });
 
-test('POST /role happy path: 200, role updated, single role_grants row written', async () => {
-  const { orgA, a1 } = await seed('role-happy');
-  const res = await req('POST', `/api/admin/users/${a1.id}/role`, {
-    body: { role: 'admin', orgSlug: orgA.slug },
-    adminToken: ADMIN_TOKEN,
+test('POST /role happy path: admin promotes a member, session:<actor> audit row', async () => {
+  const { orgA, a1, a2 } = await seed('role-happy');
+  await makeOrgAdmin(a1.id);
+  const res = await sreq('POST', `/api/admin/users/${a2.id}/role`, {
+    body: { role: 'admin' },
+    cookie: await adminCookie(a1.id, orgA.id),
   });
   assert.equal(res.status, 200);
   const { user } = await res.json();
-  assert.equal(user.id, a1.id);
+  assert.equal(user.id, a2.id);
   assert.equal(user.role, 'admin');
 
-  const { rows: userRows } = await pool.query('SELECT role FROM users WHERE id = $1', [a1.id]);
+  const { rows: userRows } = await pool.query('SELECT role FROM users WHERE id = $1', [a2.id]);
   assert.equal(userRows[0].role, 'admin');
 
   const { rows: grants } = await pool.query(
-    'SELECT user_id, granted_role, granted_by FROM role_grants WHERE user_id = $1',
-    [a1.id],
+    'SELECT granted_role, granted_by FROM role_grants WHERE user_id = $1',
+    [a2.id],
   );
   assert.equal(grants.length, 1, 'exactly one role_grants row');
-  assert.equal(grants[0].user_id, a1.id);
   assert.equal(grants[0].granted_role, 'admin');
-  assert.equal(grants[0].granted_by, 'admin_token');
+  assert.equal(grants[0].granted_by, `session:${a1.id}`, 'audit records the acting admin');
 });
 
 test('POST /role no-op when role unchanged: 200, no new audit row', async () => {
-  const { orgA, a1 } = await seed('role-noop');
-  // First call: promote to admin, leaves one audit row.
-  const r1 = await req('POST', `/api/admin/users/${a1.id}/role`, {
-    body: { role: 'admin', orgSlug: orgA.slug },
-    adminToken: ADMIN_TOKEN,
-  });
+  const { orgA, a1, a2 } = await seed('role-noop');
+  await makeOrgAdmin(a1.id);
+  const cookie = await adminCookie(a1.id, orgA.id);
+  // First call: promote a2 to admin, leaves one audit row.
+  const r1 = await sreq('POST', `/api/admin/users/${a2.id}/role`, { body: { role: 'admin' }, cookie });
   assert.equal(r1.status, 200);
   const { rows: before } = await pool.query(
     'SELECT count(*)::int AS n FROM role_grants WHERE user_id = $1',
-    [a1.id],
+    [a2.id],
   );
   assert.equal(before[0].n, 1);
-  // Second call with the same role: should be a no-op, no new audit row.
-  const r2 = await req('POST', `/api/admin/users/${a1.id}/role`, {
-    body: { role: 'admin', orgSlug: orgA.slug },
-    adminToken: ADMIN_TOKEN,
-  });
+  // Second call with the same role: a no-op, no new audit row.
+  const r2 = await sreq('POST', `/api/admin/users/${a2.id}/role`, { body: { role: 'admin' }, cookie });
   assert.equal(r2.status, 200);
   const { rows: after } = await pool.query(
     'SELECT count(*)::int AS n FROM role_grants WHERE user_id = $1',
-    [a1.id],
+    [a2.id],
   );
   assert.equal(after[0].n, 1, 'no-op must not insert another row');
 });
 
-test('POST /role requires orgSlug -> 400 when missing (SEC-1)', async () => {
-  const { a1 } = await seed('role-no-org');
-  const res = await req('POST', `/api/admin/users/${a1.id}/role`, {
+test('POST /role cannot touch a user in another org -> 404 (SEC-1)', async () => {
+  // An org-A admin must not flip a user in org B. org comes from the session,
+  // not input, so b1 is invisible and stays a member.
+  const { orgA, a1, b1 } = await seed('role-cross');
+  await makeOrgAdmin(a1.id);
+  const res = await sreq('POST', `/api/admin/users/${b1.id}/role`, {
     body: { role: 'admin' },
-    adminToken: ADMIN_TOKEN,
-  });
-  assert.equal(res.status, 400);
-  const body = await res.json();
-  assert.equal(body.error, 'orgSlug required');
-});
-
-test('POST /role cannot promote a user via a different org slug -> 404 (SEC-1)', async () => {
-  // A token holder naming org A must not flip a user who belongs to org B.
-  // The lookup + update are bound to (id, org_id), so the cross-org target is
-  // invisible and stays a member.
-  const { orgA, b1 } = await seed('role-cross');
-  const res = await req('POST', `/api/admin/users/${b1.id}/role`, {
-    body: { role: 'admin', orgSlug: orgA.slug },
-    adminToken: ADMIN_TOKEN,
+    cookie: await adminCookie(a1.id, orgA.id),
   });
   assert.equal(res.status, 404);
-  const body = await res.json();
-  assert.equal(body.error, 'user not found');
+  assert.equal((await res.json()).error, 'user not found');
   const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [b1.id]);
   assert.equal(rows[0].role, 'member', 'cross-org target must remain a member');
+});
+
+test('POST /role last-admin guard: demoting the org sole admin -> 409 (SEC-1)', async () => {
+  const { orgA, a1 } = await seed('role-lastadmin');
+  await makeOrgAdmin(a1.id);
+  // a1 is the only admin; demoting self (= the last admin) must be blocked.
+  const res = await sreq('POST', `/api/admin/users/${a1.id}/role`, {
+    body: { role: 'member' },
+    cookie: await adminCookie(a1.id, orgA.id),
+  });
+  assert.equal(res.status, 409);
+  assert.equal((await res.json()).error, 'cannot remove the last admin');
+  const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [a1.id]);
+  assert.equal(rows[0].role, 'admin', 'sole admin must remain admin');
+});
+
+test('POST /role can demote an admin when another admin remains', async () => {
+  const { orgA, a1, a2 } = await seed('role-demote-ok');
+  await makeOrgAdmin(a1.id);
+  await makeOrgAdmin(a2.id);
+  // Two admins: demoting a2 is allowed.
+  const res = await sreq('POST', `/api/admin/users/${a2.id}/role`, {
+    body: { role: 'member' },
+    cookie: await adminCookie(a1.id, orgA.id),
+  });
+  assert.equal(res.status, 200);
+  const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [a2.id]);
+  assert.equal(rows[0].role, 'member');
+});
+
+// Bootstrap: the token mints the org's first admin via POST /api/admin/users.
+test('POST /api/admin/users with role=admin bootstraps an admin + audit row', async () => {
+  const { orgA } = await seed('bootstrap-admin');
+  await pool.query(`DELETE FROM users WHERE lower(email) = 'bootstrap-admin@example.com'`);
+  const res = await req('POST', '/api/admin/users', {
+    body: { orgSlug: orgA.slug, email: 'bootstrap-admin@example.com', role: 'admin' },
+    adminToken: ADMIN_TOKEN,
+  });
+  assert.equal(res.status, 200);
+  const { user } = await res.json();
+  assert.equal(user.role, 'admin');
+  const { rows: grants } = await pool.query(
+    `SELECT granted_by FROM role_grants WHERE user_id = $1`,
+    [user.id],
+  );
+  assert.equal(grants.length, 1);
+  assert.equal(grants[0].granted_by, 'admin_token');
+  await pool.query('DELETE FROM users WHERE id = $1', [user.id]);
+});
+
+test('POST /api/admin/users without role defaults to member (no audit row)', async () => {
+  const { orgA } = await seed('bootstrap-member');
+  await pool.query(`DELETE FROM users WHERE lower(email) = 'bootstrap-member@example.com'`);
+  const res = await req('POST', '/api/admin/users', {
+    body: { orgSlug: orgA.slug, email: 'bootstrap-member@example.com' },
+    adminToken: ADMIN_TOKEN,
+  });
+  assert.equal(res.status, 200);
+  const { user } = await res.json();
+  assert.equal(user.role, 'member');
+  const { rows: grants } = await pool.query('SELECT 1 FROM role_grants WHERE user_id = $1', [user.id]);
+  assert.equal(grants.length, 0, 'member creation writes no role_grants row');
+  await pool.query('DELETE FROM users WHERE id = $1', [user.id]);
 });
 
 // POST /api/admin/teams ------------------------------------------------------
