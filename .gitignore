@@ -14,5 +14,9 @@ Thumbs.db
 dev-emails/
 .gstack/
 
+# Playwright / test-runner output
+test-results/
+playwright-report/
+
 # Per-developer agent memory state (hippo-memory project store)
 .hippo/
