@@ -3,6 +3,7 @@ import { requestMotionPermission, captureMotion } from '../imu/motion.js';
 import { analyseTremor } from '../imu/tremor.js';
 import { analyseGait } from '../imu/gait.js';
 import { unlockAudio, getAudioContext } from '../audio/recorder.js';
+import { analyzeNeuro } from '../api.js';
 
 const css = `
   .nv-stage {
@@ -701,18 +702,11 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
     setReportLoading(true);
     setReport(null);
     try {
-      const res = await fetch('/api/analyze-neuro', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tremor: currentTremor,
-          gait: currentGait,
-          demographics: demographics || {},
-        }),
+      const data = await analyzeNeuro({
+        tremor: currentTremor,
+        gait: currentGait,
+        demographics: demographics || {},
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       setReport(data.report);
     } catch (e) {
       console.warn('analyze-neuro failed', e);
