@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeBlow, analyzeHeart, getSessionId } from '../api.js';
+import { analyzeBlow, analyzeHeart, analyzeNeuro, getCheckIns, getSessionId } from '../api.js';
 
 // Privacy + behaviour tests for the API client (audit TEST-3). The headline
 // guarantee is the privacy boundary: only extracted NUMERIC features ever leave
@@ -100,4 +100,48 @@ test('postJson surfaces a non-ok HTTP response as an error', async () => {
     analyzeHeart({ heart: { hrBpm: 70 }, demographics: {} }),
     /HTTP 400/,
   );
+});
+
+test('analyzeNeuro sends only tremor/gait/demographics, no raw motion stream', async () => {
+  const cap = {};
+  captureFetch(cap);
+  await analyzeNeuro({
+    tremor: { dominantFrequencyHz: 6.2, classification: 'physiological', bands: { low: 0.1 } },
+    gait: { stepsDetected: 10, cadence: 100, stridesCv: 0.1 },
+    demographics: { ageYears: 30, sex: 'male' },
+  });
+  assert.equal(cap.path, '/api/analyze-neuro');
+  const ALLOWED_NEURO = new Set(['tremor', 'gait', 'demographics']);
+  for (const k of Object.keys(cap.body)) {
+    assert.ok(ALLOWED_NEURO.has(k), `unexpected top-level key in neuro payload: ${k}`);
+  }
+  const flat = JSON.stringify(cap.body);
+  for (const raw of RAW_KEYS) {
+    assert.ok(!flat.includes(`"${raw}"`), `raw-capture key leaked across the boundary: ${raw}`);
+  }
+});
+
+test('getCheckIns GETs the history endpoint and returns the parsed body', async () => {
+  let calledPath = null;
+  let calledOpts = null;
+  globalThis.fetch = async (path, opts) => {
+    calledPath = path;
+    calledOpts = opts;
+    return { ok: true, status: 200, json: async () => ({ checkIns: [{ id: '1' }], limit: 50, truncated: false }) };
+  };
+  const data = await getCheckIns(50);
+  assert.equal(calledPath, '/api/me/check-ins?limit=50');
+  assert.equal(calledOpts.credentials, 'include');
+  assert.ok(calledOpts.method === undefined || calledOpts.method === 'GET', 'must be a GET');
+  assert.equal(data.checkIns.length, 1);
+});
+
+test('getCheckIns throws kind=auth-expired on 401 (distinct from network)', async () => {
+  globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({}) });
+  await assert.rejects(getCheckIns(50), (err) => err.kind === 'auth-expired');
+});
+
+test('getCheckIns throws kind=network on a non-401 failure', async () => {
+  globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
+  await assert.rejects(getCheckIns(50), (err) => err.kind === 'network');
 });

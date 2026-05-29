@@ -72,3 +72,41 @@ export function analyzeHeart({ heart, demographics }) {
     sessionId: getSessionId(),
   });
 }
+
+// analyze-neuro takes no sessionId (the server does not record one for motion);
+// routing it through postJson gives it the same retry + timeout as blow/heart.
+export function analyzeNeuro({ tremor, gait, demographics }) {
+  return postJson('/api/analyze-neuro', { tremor, gait, demographics });
+}
+
+// GET helper. Throws an Error tagged with `.kind` ('auth-expired' | 'network')
+// so callers can branch on auth-vs-other failures without re-checking statuses.
+async function getJson(path, { timeoutMs = 35000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(path, { credentials: 'include', signal: controller.signal });
+  } catch {
+    clearTimeout(timer);
+    const e = new Error('network request failed');
+    e.kind = 'network';
+    throw e;
+  }
+  clearTimeout(timer);
+  if (res.status === 401) {
+    const e = new Error('not authenticated');
+    e.kind = 'auth-expired';
+    throw e;
+  }
+  if (!res.ok) {
+    const e = new Error(`HTTP ${res.status}`);
+    e.kind = 'network';
+    throw e;
+  }
+  return res.json();
+}
+
+export function getCheckIns(limit = 50) {
+  return getJson(`/api/me/check-ins?limit=${encodeURIComponent(limit)}`);
+}

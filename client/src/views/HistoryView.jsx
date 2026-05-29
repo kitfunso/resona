@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { getCheckIns } from '../api.js';
 
 // CSS prefix is hsv- (history-view; hv- is taken by HeartView).
 // Mirrors the resona convention: const css at module scope,
@@ -373,27 +374,14 @@ export default function HistoryView({ onBack, onBreath, onHeart }) {
     setStage('loading');
     setErrorKind(null);
     try {
-      const res = await fetch('/api/me/check-ins?limit=50', {
-        credentials: 'include',
-      });
-      if (res.status === 401) {
-        setErrorKind('auth-expired');
-        setStage('error');
-        return;
-      }
-      if (!res.ok) {
-        setErrorKind('network');
-        setStage('error');
-        return;
-      }
-      const data = await res.json();
+      const data = await getCheckIns(50);
       const rows = Array.isArray(data?.checkIns) ? data.checkIns : [];
       setCheckIns(rows);
       setLimit(typeof data?.limit === 'number' ? data.limit : 50);
       setTruncated(data?.truncated === true);
       setStage(rows.length === 0 ? 'empty' : 'list');
-    } catch (_err) {
-      setErrorKind('network');
+    } catch (err) {
+      setErrorKind(err?.kind === 'auth-expired' ? 'auth-expired' : 'network');
       setStage('error');
     }
   }, []);
