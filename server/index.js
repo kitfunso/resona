@@ -20,6 +20,7 @@ import {
   buildPersonalReportUserMessage,
   buildNeuroReportUserMessage,
   buildHeartReportUserMessage,
+  buildDemographics,
 } from './prompts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -381,16 +382,8 @@ function scrubReport(report) {
 app.post('/api/analyze-neuro', requireAuth, async (req, res) => {
   const user = await loadCurrentUser(req.auth.userId);
   if (!user) return res.status(404).json({ error: 'user not found' });
-  const ageYears = user.dob
-    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
-    : null;
-  const demographics = {
-    age: ageYears,
-    sex: user.sex,
-    heightCm: user.height_cm,
-    ethnicity: user.ethnicity,
-  };
-  if (!ageYears || !demographics.sex) {
+  const demographics = buildDemographics(user);
+  if (!demographics.ageYears || !demographics.sex) {
     return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
   }
 
@@ -434,16 +427,8 @@ app.post('/api/analyze-neuro', requireAuth, async (req, res) => {
 app.post('/api/analyze-heart', requireAuth, async (req, res) => {
   const user = await loadCurrentUser(req.auth.userId);
   if (!user) return res.status(404).json({ error: 'user not found' });
-  const ageYears = user.dob
-    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
-    : null;
-  const demographics = {
-    age: ageYears,
-    sex: user.sex,
-    heightCm: user.height_cm,
-    ethnicity: user.ethnicity,
-  };
-  if (!ageYears || !demographics.sex) {
+  const demographics = buildDemographics(user);
+  if (!demographics.ageYears || !demographics.sex) {
     return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
   }
 
@@ -500,16 +485,8 @@ app.post('/api/analyze-heart', requireAuth, async (req, res) => {
 app.post('/api/analyze-blow', requireAuth, async (req, res) => {
   const user = await loadCurrentUser(req.auth.userId);
   if (!user) return res.status(404).json({ error: 'user not found' });
-  const ageYears = user.dob
-    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
-    : null;
-  const demographics = {
-    age: ageYears,
-    sex: user.sex,
-    heightCm: user.height_cm,
-    ethnicity: user.ethnicity,
-  };
-  if (!ageYears || !demographics.sex || !demographics.heightCm) {
+  const demographics = buildDemographics(user);
+  if (!demographics.ageYears || !demographics.sex || !demographics.heightCm) {
     return res.status(400).json({ error: 'profile incomplete; PATCH /api/me first' });
   }
 
