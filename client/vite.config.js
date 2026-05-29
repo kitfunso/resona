@@ -43,6 +43,19 @@ function mediapipeWasmPlugin() {
 
 export default defineConfig({
   plugins: [react(), mediapipeWasmPlugin()],
+  build: {
+    rollupOptions: {
+      output: {
+        // Split the React runtime into its own chunk (FE-5). React changes far
+        // less often than app code, so returning users keep vendor-react cached
+        // across deploys instead of re-downloading React inside the app bundle
+        // on every ship. (MediaPipe is already a separate lazy chunk.)
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+        },
+      },
+    },
+  },
   server: {
     host: true,
     port: 5174,

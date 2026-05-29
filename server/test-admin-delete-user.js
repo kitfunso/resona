@@ -133,3 +133,23 @@ test('admin cannot erase a user in another org -> 404, target survives', async (
   const u = await pool.query('SELECT 1 FROM users WHERE id = $1', [victimB]);
   assert.equal(u.rowCount, 1, 'cross-org target must survive');
 });
+
+test('cannot erase the org last admin (self) -> 409 (SEC-1 last-admin guard)', async () => {
+  const orgId = await seedOrg('del-lastadmin', 'Del LastAdmin');
+  const adminId = await addUser(orgId, 'del-lastadmin@example.com', 'admin');
+  const res = await del(`/api/admin/users/${adminId}`, await cookie(adminId, orgId));
+  assert.equal(res.status, 409);
+  assert.equal(res.body.error, 'cannot erase the last admin');
+  const u = await pool.query('SELECT 1 FROM users WHERE id = $1', [adminId]);
+  assert.equal(u.rowCount, 1, 'last admin must survive');
+});
+
+test('can erase an admin when another admin remains', async () => {
+  const orgId = await seedOrg('del-twoadmin', 'Del TwoAdmin');
+  const a1 = await addUser(orgId, 'del-twoadmin-1@example.com', 'admin');
+  const a2 = await addUser(orgId, 'del-twoadmin-2@example.com', 'admin');
+  const res = await del(`/api/admin/users/${a2}`, await cookie(a1, orgId));
+  assert.equal(res.status, 200);
+  const u = await pool.query('SELECT 1 FROM users WHERE id = $1', [a2]);
+  assert.equal(u.rowCount, 0, 'second admin erased while one remains');
+});
