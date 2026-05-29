@@ -857,6 +857,43 @@ app.post('/api/admin/users/:id/role', adminLimiter, requireAdmin, async (req, re
   res.json({ user: { id: current.id, email: current.email, role } });
 });
 
+// DELETE /api/admin/users/:id
+// Right-to-erasure (UK GDPR Art 17) for an org admin acting within their OWN
+// org. Session-RBAC (requireOrgAdmin), NOT the global ADMIN_TOKEN: the org is
+// taken from req.currentUser.org_id, never from input, so an admin can only
+// erase users in their own tenant. The DELETE is bound to (id, org_id) and the
+// ON DELETE CASCADE chain (check_ins, team_memberships, role_grants) purges all
+// of the user's data in one statement. A [user-erase] line is the Art 5(2)
+// accountability surface; the deleted user's own role_grants cascade away with
+// them, which is the correct erasure behaviour.
+//
+// Residual scope NOT covered here (documented for the DPA): server access logs,
+// LLM trace files, and any external sub-processor copies are not purged by this
+// route.
+app.delete('/api/admin/users/:id', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_RE.test(id)) {
+    return res.status(400).json({ error: 'invalid id' });
+  }
+  const orgId = req.currentUser.org_id;
+  try {
+    const { rowCount } = await pool.query(
+      'DELETE FROM users WHERE id = $1 AND org_id = $2',
+      [id, orgId],
+    );
+    if (rowCount === 0) {
+      // The user does not exist OR belongs to another org. Same 404 either way
+      // so an admin cannot probe cross-org user ids.
+      return res.status(404).json({ error: 'user not found' });
+    }
+    console.info(`[user-erase] actor=${req.currentUser.id} org=${orgId} deleted=${id}`);
+    res.json({ ok: true, deleted: id });
+  } catch (err) {
+    console.error('[admin/delete-user]', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
 app.post('/api/admin/teams', adminLimiter, requireAdmin, async (req, res) => {
   const { orgSlug, name } = req.body ?? {};
   if (typeof orgSlug !== 'string') {
