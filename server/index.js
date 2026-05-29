@@ -810,13 +810,25 @@ app.post('/api/admin/users/:id/role', adminLimiter, requireAdmin, async (req, re
   if (!UUID_RE.test(id)) {
     return res.status(400).json({ error: 'invalid id' });
   }
-  const { role } = req.body ?? {};
+  const { role, orgSlug } = req.body ?? {};
   if (typeof role !== 'string' || !ROLE_VALUES.has(role)) {
     return res.status(400).json({ error: 'invalid role' });
   }
+  // Org scoping: the global ADMIN_TOKEN is a bootstrap secret, so the caller
+  // must name the org the target belongs to, and the lookup + update are bound
+  // to (id, org_id). This makes any cross-org grant explicit and auditable and
+  // blocks accidental promotion of a same-id user in the wrong tenant. (Fully
+  // retiring the global token for session RBAC - granted_by 'session:<admin>' -
+  // is tracked as follow-up.)
+  if (typeof orgSlug !== 'string' || orgSlug.length === 0) {
+    return res.status(400).json({ error: 'orgSlug required' });
+  }
+  const { rows: orgs } = await pool.query('SELECT id FROM orgs WHERE slug = $1', [orgSlug]);
+  if (orgs.length === 0) return res.status(404).json({ error: 'org not found' });
+  const orgId = orgs[0].id;
   const { rows: existing } = await pool.query(
-    'SELECT id, email, role FROM users WHERE id = $1',
-    [id],
+    'SELECT id, email, role FROM users WHERE id = $1 AND org_id = $2',
+    [id, orgId],
   );
   if (existing.length === 0) return res.status(404).json({ error: 'user not found' });
   const current = existing[0];
@@ -827,7 +839,7 @@ app.post('/api/admin/users/:id/role', adminLimiter, requireAdmin, async (req, re
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
+    await client.query('UPDATE users SET role = $1 WHERE id = $2 AND org_id = $3', [role, id, orgId]);
     await client.query(
       `INSERT INTO role_grants (user_id, granted_role, granted_by)
        VALUES ($1, $2, 'admin_token')`,
@@ -841,7 +853,7 @@ app.post('/api/admin/users/:id/role', adminLimiter, requireAdmin, async (req, re
   } finally {
     client.release();
   }
-  console.info(`[role-grant] user=${id} role=${role} by=admin_token`);
+  console.info(`[role-grant] user=${id} org=${orgId} role=${role} by=admin_token`);
   res.json({ user: { id: current.id, email: current.email, role } });
 });
 
