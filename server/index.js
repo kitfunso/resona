@@ -73,7 +73,11 @@ app.set('trust proxy', 1);
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    cb(new Error('CORS not allowed'));
+    // Disallowed origin: omit the CORS header and let the browser enforce the
+    // policy. Do NOT throw — throwing surfaces as a 500 for every request that
+    // carries an Origin, including same-origin `crossorigin` ES-module asset
+    // loads, which blanks the whole app behind a proxy/tunnel.
+    cb(null, false);
   },
   credentials: true,
 }));
@@ -87,6 +91,7 @@ app.get('/health', (req, res) => {
     tagline: 'Every body has a rhythm.',
     glm: { model: MODEL, configured: isConfigured() },
     db: 'postgres',
+    demo: process.env.DEMO_MODE === 'true',
     uptime_s: Math.round(process.uptime()),
   });
 });
@@ -313,6 +318,45 @@ app.post('/api/auth/logout', (req, res) => {
     path: '/',
   });
   res.json({ ok: true });
+});
+
+// Demo-only guest sign-in. Mints an ephemeral user in the 'demo' org and issues
+// a normal session so a visitor can fill in their details and try the checks
+// without email OTP — the original hackathon flow. Gated behind DEMO_MODE so a
+// production (org/OTP) deployment never exposes it. Reuses authRequestLimiter.
+app.post('/api/auth/guest', authRequestLimiter, async (req, res) => {
+  if (process.env.DEMO_MODE !== 'true') return res.status(404).json({ error: 'not found' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Idempotent get-or-create of the demo org (DO UPDATE no-op so RETURNING fires on conflict).
+    const { rows: orgs } = await client.query(
+      `INSERT INTO orgs (slug, name) VALUES ('demo', 'Demo')
+         ON CONFLICT (slug) DO UPDATE SET slug = EXCLUDED.slug
+       RETURNING id`,
+    );
+    const guestEmail = `guest-${crypto.randomUUID()}@demo.local`;
+    const { rows: users } = await client.query(
+      'INSERT INTO users (org_id, email) VALUES ($1, $2) RETURNING id, org_id',
+      [orgs[0].id, guestEmail],
+    );
+    await client.query('COMMIT');
+    const token = await issueSession({ userId: users[0].id, orgId: users[0].org_id });
+    res.cookie(SESSION_COOKIE, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: SESSION_TTL_SEC_OUT * 1000,
+      path: '/',
+    });
+    res.json({ ok: true, guest: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[auth/guest]', err);
+    res.status(500).json({ error: 'failed' });
+  } finally {
+    client.release();
+  }
 });
 
 app.get('/api/me', requireAuth, async (req, res) => {

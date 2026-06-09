@@ -15,6 +15,9 @@ const TRACE_PATH = path.join(ROOT_DIR, 'llm-trace.log');
 dotenv.config({ path: path.join(ROOT_DIR, '.env') });
 
 const API_KEY = process.env.OPENAI_API_KEY;
+// Optional override so the standard OpenAI SDK can target an OpenAI-compatible
+// endpoint (e.g. the local openclaw shim or OpenRouter). Unset = OpenAI direct.
+const BASE_URL = process.env.OPENAI_BASE_URL;
 export const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 const DEFAULT_TEMPERATURE = 0.6;
 const DEFAULT_MAX_TOKENS = 2000;
@@ -23,7 +26,7 @@ const DEFAULT_MAX_TOKENS = 2000;
 // timeout with 2 retries, so a stalled upstream could hang an analyze
 // request ~30 min. 45s + one retry caps worst-case latency near 90s.
 const client = API_KEY
-  ? new OpenAI({ apiKey: API_KEY, timeout: 45_000, maxRetries: 1 })
+  ? new OpenAI({ apiKey: API_KEY, ...(BASE_URL ? { baseURL: BASE_URL } : {}), timeout: 45_000, maxRetries: 1 })
   : null;
 
 export function isConfigured() {

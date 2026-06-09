@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { requestSignInCode, verifySignInCode } from '../auth.js';
+import React, { useState, useEffect } from 'react';
+import { requestSignInCode, verifySignInCode, startGuestSession, fetchHealth } from '../auth.js';
 
 const css = `
   .login-view {
@@ -159,6 +159,21 @@ export default function LoginView({ onSignedIn }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [demo, setDemo] = useState(false);
+
+  useEffect(() => {
+    fetchHealth().then((h) => setDemo(h?.demo === true)).catch(() => {});
+  }, []);
+
+  async function startGuest() {
+    setBusy(true); setError('');
+    try {
+      await startGuestSession();
+      onSignedIn();
+    } catch (err) {
+      setError('Could not start the demo. Try again in a moment.');
+    } finally { setBusy(false); }
+  }
 
   async function submitEmail(e) {
     e.preventDefault();
@@ -192,21 +207,28 @@ export default function LoginView({ onSignedIn }) {
           <h1 className="lv-title">Sign in</h1>
         </div>
         {stage === 'email' && (
-          <form onSubmit={submitEmail}>
-            <label>
-              Your work email
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoFocus
-                required
-              />
-            </label>
-            <button type="submit" disabled={busy}>
-              {busy ? 'Sending...' : 'Send me a code'}
-            </button>
-          </form>
+          <>
+            <form onSubmit={submitEmail}>
+              <label>
+                Your work email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </label>
+              <button type="submit" disabled={busy}>
+                {busy ? 'Sending...' : 'Send me a code'}
+              </button>
+            </form>
+            {demo && (
+              <button type="button" className="lv-guest" onClick={startGuest} disabled={busy}>
+                {busy ? 'Starting...' : 'Try it now, no sign-in'}
+              </button>
+            )}
+          </>
         )}
         {stage === 'code' && (
           <form onSubmit={submitCode}>
