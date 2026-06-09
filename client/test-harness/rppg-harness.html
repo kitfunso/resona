@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head><meta charset="utf-8" /><title>rPPG recorder harness</title></head>
+  <body>
+    <video id="v" autoplay playsinline muted style="width:128px;height:96px"></video>
+    <pre id="log">starting</pre>
+    <!--
+      Drives the REAL client capture path (recorder.js: getUserMedia -> fallback
+      ROIs -> captureRppg's per-frame drawImage/getImageData ROI means) against a
+      fake camera, then runs the real features.js extraction. This is the only
+      coverage of the camera->canvas->ROI seam, which the node unit tests cannot
+      reach. Face detection is skipped on purpose (synthetic frame has no face),
+      so we use buildFallbackRois directly and avoid the MediaPipe model download.
+    -->
+    <script type="module">
+      import { captureRppg, buildFallbackRois } from '../src/video/recorder.js';
+      import { extractHeartFeatures } from '../src/video/features.js';
+
+      const log = (m) => { document.getElementById('log').textContent = m; window.__STATUS__ = m; };
+
+      (async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 128 }, height: { ideal: 96 }, frameRate: { ideal: 30 } },
+            audio: false,
+          });
+          const v = document.getElementById('v');
+          v.srcObject = stream;
+          await new Promise((r) => { v.onloadedmetadata = r; });
+          await v.play();
+          await new Promise((r) => setTimeout(r, 600)); // let the fake feed settle
+          const { rois } = buildFallbackRois(v);
+          log('capturing');
+          const cap = await captureRppg({ videoEl: v, durationMs: 22000, rois });
+          const feat = extractHeartFeatures({ samples: cap.samples, durationSec: cap.durationSec });
+          window.__RESULT__ = {
+            hrBpm: feat.hrBpm, grade: feat.grade, reasons: feat.reasons,
+            framesUsed: feat.framesUsed, roiSource: cap.roiSource,
+            durationSec: cap.durationSec, snr: feat.snr,
+          };
+          log('done');
+        } catch (e) {
+          window.__RESULT__ = { error: String((e && e.message) || e) };
+          log('error');
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resona Heart — accuracy validation</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 560px; margin: 1.5rem auto; padding: 0 1rem; }
+      video { width: 100%; max-width: 360px; border-radius: 8px; background: #111; }
+      .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .5rem 0; }
+      label { font-size: .85rem; }
+      input, select, button { font-size: 1rem; padding: .4rem; }
+      button { cursor: pointer; }
+      #result { font-size: 1.1rem; font-weight: 600; margin: .5rem 0; }
+      table { width: 100%; border-collapse: collapse; font-size: .8rem; margin-top: 1rem; }
+      th, td { border: 1px solid #ccc; padding: .3rem; text-align: center; }
+      .muted { color: #666; font-size: .8rem; }
+    </style>
+  </head>
+  <body>
+    <h2>Resona Heart — accuracy validation</h2>
+    <p class="muted">
+      Runs the REAL rPPG pipeline (recorder.js + features.js) on your camera, then logs the
+      result next to a reference reading (fingertip pulse-ox / chest strap) so the two can be
+      compared. Data stays in your browser (localStorage) until you export CSV. Centre your face,
+      hold still, good even lighting. Uses centred fallback ROIs (not face-detect) — see the protocol.
+    </p>
+
+    <video id="v" autoplay playsinline muted></video>
+
+    <div class="row">
+      <button id="start">Start 30s capture</button>
+      <span id="status" class="muted">idle</span>
+    </div>
+
+    <div id="result">—</div>
+
+    <div class="row">
+      <label>Reference HR (bpm) <input id="refHr" type="number" min="30" max="220" step="1" /></label>
+    </div>
+    <div class="row">
+      <label>Lighting
+        <select id="lighting"><option>bright</option><option selected>normal</option><option>dim</option></select>
+      </label>
+      <label>Activity
+        <select id="activity"><option selected>rest</option><option>post-exercise</option></select>
+      </label>
+      <label>Skin (Fitzpatrick)
+        <select id="skin"><option>I</option><option>II</option><option selected>III</option><option>IV</option><option>V</option><option>VI</option></select>
+      </label>
+    </div>
+    <div class="row">
+      <label>Note <input id="note" type="text" placeholder="optional" /></label>
+    </div>
+    <div class="row">
+      <button id="save" disabled>Save reading</button>
+      <button id="export">Export CSV</button>
+      <button id="clear">Clear all</button>
+      <span id="count" class="muted">0 saved</span>
+    </div>
+
+    <table id="tbl"><thead><tr><th>#</th><th>rPPG HR</th><th>grade</th><th>snr</th><th>ref HR</th><th>Δ</th><th>light</th><th>act</th><th>skin</th></tr></thead><tbody></tbody></table>
+
+    <script type="module">
+      import { captureRppg, buildFallbackRois } from '../src/video/recorder.js';
+      import { extractHeartFeatures } from '../src/video/features.js';
+
+      const KEY = 'resona-validation-rows';
+      const $ = (id) => document.getElementById(id);
+      const rows = () => JSON.parse(localStorage.getItem(KEY) || '[]');
+      const setRows = (r) => localStorage.setItem(KEY, JSON.stringify(r));
+      let last = null;
+
+      function render() {
+        const r = rows();
+        $('count').textContent = `${r.length} saved`;
+        $('tbl').querySelector('tbody').innerHTML = r.map((x, i) =>
+          `<tr><td>${i + 1}</td><td>${x.rppgHr ?? ''}</td><td>${x.grade}</td><td>${x.snr ?? ''}</td><td>${x.refHr ?? ''}</td><td>${(x.rppgHr != null && x.refHr != null) ? (x.rppgHr - x.refHr).toFixed(1) : ''}</td><td>${x.lighting}</td><td>${x.activity}</td><td>${x.skin}</td></tr>`).join('');
+      }
+
+      let stream;
+      async function ensureCamera() {
+        if (stream) return;
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } }, audio: false });
+        const v = $('v'); v.srcObject = stream;
+        await new Promise((r) => { v.onloadedmetadata = r; });
+        await v.play();
+      }
+
+      $('start').onclick = async () => {
+        try {
+          $('start').disabled = true; $('save').disabled = true; $('result').textContent = '—';
+          await ensureCamera();
+          $('status').textContent = 'capturing 30s — hold still';
+          const { rois } = buildFallbackRois($('v'));
+          const cap = await captureRppg({ videoEl: $('v'), durationMs: 30000, rois, onTick: ({ pct }) => { $('status').textContent = `capturing ${Math.round(pct * 100)}%`; } });
+          const feat = extractHeartFeatures({ samples: cap.samples, durationSec: cap.durationSec });
+          last = { rppgHr: feat.hrBpm != null ? +feat.hrBpm.toFixed(1) : null, grade: feat.grade, snr: feat.snr != null ? +feat.snr.toFixed(1) : null, rmssd: feat.hrvRmssdMs != null ? +feat.hrvRmssdMs.toFixed(1) : null, reasons: feat.reasons, framesUsed: feat.framesUsed };
+          $('result').textContent = feat.grade === 'poor'
+            ? `POOR (${feat.reasons.join(', ')}) — would show coaching, not a number`
+            : `${last.rppgHr} bpm · grade ${feat.grade} · snr ${last.snr} · rmssd ${last.rmssd ?? '—'} ms`;
+          $('status').textContent = 'done — enter reference HR, then Save';
+          $('save').disabled = false;
+        } catch (e) {
+          $('status').textContent = 'error: ' + ((e && e.message) || e);
+        } finally {
+          $('start').disabled = false;
+        }
+      };
+
+      $('save').onclick = () => {
+        if (!last) return;
+        const refHr = $('refHr').value ? Number($('refHr').value) : null;
+        const r = rows();
+        r.push({ ts: new Date().toISOString(), ...last, refHr, lighting: $('lighting').value, activity: $('activity').value, skin: $('skin').value, note: $('note').value });
+        setRows(r); render();
+        $('save').disabled = true; $('refHr').value = ''; $('note').value = ''; last = null;
+        $('result').textContent = 'saved ✓';
+      };
+
+      $('export').onclick = () => {
+        const r = rows();
+        const cols = ['ts', 'rppgHr', 'grade', 'snr', 'rmssd', 'refHr', 'lighting', 'activity', 'skin', 'framesUsed', 'note'];
+        const csv = [cols.join(',')].concat(r.map((x) => cols.map((c) => {
+          const val = x[c] ?? '';
+          return typeof val === 'string' && (val.includes(',') || val.includes('"')) ? `"${val.replace(/"/g, '""')}"` : val;
+        }).join(','))).join('\n');
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+        a.download = 'resona-validation.csv'; a.click();
+      };
+
+      $('clear').onclick = () => { if (confirm('Delete all saved readings?')) { setRows([]); render(); } };
+
+      render();
+    </script>
+  </body>
+</html>

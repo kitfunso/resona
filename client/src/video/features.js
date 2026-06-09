@@ -231,8 +231,17 @@ export function extractHeartFeatures({ samples, durationSec }) {
     if (Number.isFinite(hrBpm) && Math.abs(hrBpm - hrFromRr) > 15) reasons.push('hr_methods_disagree');
   }
 
+  // Hard disqualifiers: any single one means we cannot trust a number, so we
+  // refuse to show one (grade 'poor' -> the UI short-circuits to coaching).
+  //  - no_peak: no spectral pulse peak at all.
+  //  - hr_methods_disagree: the spectral HR and the beat-interval HR differ by
+  //    >15 bpm, i.e. two independent estimators of the same quantity diverge.
+  //    By construction we do not have a measurement, so a number here is a
+  //    confident-wrong risk (e.g. pure noise -> a spurious ~142 bpm). For a
+  //    screening tool, false-'poor' (retake) beats showing an invented vital.
+  const HARD_REASONS = ['no_peak', 'hr_methods_disagree'];
   let grade;
-  if (reasons.includes('no_peak') || reasons.length >= 2) grade = 'poor';
+  if (reasons.some((r) => HARD_REASONS.includes(r)) || reasons.length >= 2) grade = 'poor';
   else if (reasons.length === 1) grade = 'fair';
   else grade = 'good';
 

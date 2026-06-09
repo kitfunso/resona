@@ -18,5 +18,8 @@ dev-emails/
 test-results/
 playwright-report/
 
+# Generated synthetic test video for the fake-camera rPPG e2e (rebuild with make-rppg-y4m.mjs)
+client/test-harness/*.y4m
+
 # Per-developer agent memory state (hippo-memory project store)
 .hippo/

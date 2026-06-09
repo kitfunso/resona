@@ -45,6 +45,13 @@ export default defineConfig({
   plugins: [react(), mediapipeWasmPlugin()],
   build: {
     rollupOptions: {
+      // Multi-page: ship the React app AND the standalone heart-validation
+      // harness (test-harness/validate.html) so the latter is reachable in a
+      // static (Cloudflare Pages) deploy at /test-harness/validate.html.
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        validate: path.resolve(__dirname, 'test-harness/validate.html'),
+      },
       output: {
         // Split the React runtime into its own chunk (FE-5). React changes far
         // less often than app code, so returning users keep vendor-react cached
