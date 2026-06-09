@@ -13,6 +13,13 @@ const TWO_PI = 2 * Math.PI;
 const TARGET_FPS = 30;
 const HR_BAND_LO = 0.7; // 42 bpm
 const HR_BAND_HI = 4.0; // 240 bpm
+// HR-trust thresholds on the spectral peak. Calibrated on live captures: face-ROI
+// reads tracking true HR had SNR ~20-36 and one dominant peak; centred-patch noise
+// that scattered HR had SNR ~5-11. Provisional -- widen the dataset before locking.
+const SNR_TRUST_MIN = 12;       // peak not dominant over the noise floor -> reject
+const SNR_GOOD_MIN = 20;        // clean dominant peak -> 'good'
+const PEAK_DOMINANCE_MIN = 2.5; // top peak / runner-up; below this is ambiguous
+const HRV_RMSSD_MAX_MS = 200;   // RMSSD above this is non-physiologic -> HRV unavailable
 
 function nextPow2(n) { let p = 1; while (p < n) p *= 2; return p; }
 
@@ -143,6 +150,18 @@ export function extractHeartFeatures({ samples, durationSec }) {
     if (mag > peakMag) { peakMag = mag; peakBin = k; }
   }
 
+  // Peak dominance: a clean pulse has ONE dominant in-band peak; a competing tone
+  // (rhythmic motion, light flicker) makes a comparable rival peak -> ambiguous,
+  // not a heart rate. Find the best peak outside the main peak's skirt.
+  let secondMag = 0;
+  const peakGuard = Math.max(3, Math.round(0.15 / binHz));
+  for (let k = loBin; k <= hiBin; k++) {
+    if (Math.abs(k - peakBin) <= peakGuard) continue;
+    const mag = re[k] * re[k] + im[k] * im[k];
+    if (mag > secondMag) secondMag = mag;
+  }
+  const peakDominance = secondMag > 0 ? peakMag / secondMag : Infinity;
+
   let hrBpm = NaN;
   let snr = 0;
   if (peakBin > 0 && peakMag > 0) {
@@ -165,7 +184,13 @@ export function extractHeartFeatures({ samples, durationSec }) {
     reasons.push('no_peak');
   }
 
-  if (snr < 1.5 && !reasons.includes('no_peak')) reasons.push('low_snr');
+  // HR trust = spectral peak quality: dominant over the noise floor (SNR) AND a
+  // single clear peak (dominance). Either failing means we don't have a heart rate.
+  if (!reasons.includes('no_peak')) {
+    if (snr < SNR_TRUST_MIN) reasons.push('low_snr');
+    else if (snr < SNR_GOOD_MIN) reasons.push('moderate_snr');
+    if (peakDominance < PEAK_DOMINANCE_MIN) reasons.push('ambiguous_peak');
+  }
 
   // --- Pass 2: Unwindowed FFT for frequency-domain bandpass + IFFT.
   // Using the unwindowed transform ensures full-amplitude reconstruction
@@ -211,48 +236,50 @@ export function extractHeartFeatures({ samples, durationSec }) {
     const ms = (peaks[i] - peaks[i - 1]) * (1000 / TARGET_FPS);
     if (ms >= 250 && ms <= 2000) rr.push(ms);
   }
-  if (rr.length < 2) reasons.push('no_beats');
-  else if (rr.length < 20) reasons.push('few_beats');
-
+  // --- HRV (RMSSD / SDNN) from beat intervals. This is the LEAST reliable output:
+  // beat-to-beat timing from phone video is easily corrupted, so HRV must NEVER
+  // veto the heart rate. Compute it, but only expose it when physiologically
+  // plausible; otherwise mark it unavailable (an info flag, not an HR gate).
   let hrvRmssdMs = null;
   let sdnnMs = null;
-  if (rr.length >= 2) {
+  let hrvOk = false;
+  if (rr.length >= 20) {
     let diffSqSum = 0;
     for (let i = 1; i < rr.length; i++) {
       const d = rr[i] - rr[i - 1];
       diffSqSum += d * d;
     }
-    hrvRmssdMs = Math.sqrt(diffSqSum / (rr.length - 1));
-    let mean = 0; for (const x of rr) mean += x; mean /= rr.length;
-    let varSum = 0; for (const x of rr) varSum += (x - mean) * (x - mean);
-    sdnnMs = Math.sqrt(varSum / rr.length);
-    // RMSSD above ~200 ms is non-physiologic (real resting RMSSD ~20-60 ms): it
-    // means the beat detector is firing on noise, not heartbeats. Observed live:
-    // 477-600 ms on captures that also scattered HR by 60 bpm.
-    if (hrvRmssdMs > 200) reasons.push('hrv_implausible');
+    const rmssd = Math.sqrt(diffSqSum / (rr.length - 1));
+    if (rmssd <= HRV_RMSSD_MAX_MS) {
+      hrvRmssdMs = rmssd;
+      let mean = 0; for (const x of rr) mean += x; mean /= rr.length;
+      let varSum = 0; for (const x of rr) varSum += (x - mean) * (x - mean);
+      sdnnMs = Math.sqrt(varSum / rr.length);
+      hrvOk = true;
+    }
   }
+  if (!hrvOk) reasons.push('hrv_unavailable');
 
-  // Method-agreement check.
-  let hrFromRr = null;
-  if (rr.length >= 3) {
+  // Cross-check spectral HR against beat-interval HR, but ONLY when the beat
+  // detector is itself credible (HRV plausible). Noise beats don't get a vote.
+  if (hrvOk && rr.length >= 3) {
     let mean = 0; for (const x of rr) mean += x; mean /= rr.length;
-    hrFromRr = 60000 / mean;
+    const hrFromRr = 60000 / mean;
     if (Number.isFinite(hrBpm) && Math.abs(hrBpm - hrFromRr) > 15) reasons.push('hr_methods_disagree');
   }
 
-  // Hard disqualifiers: any single one means we cannot trust a number, so we
-  // refuse to show one (grade 'poor' -> the UI short-circuits to coaching).
-  // For a screening tool, false-'poor' (retake) beats showing an invented vital.
-  //  - no_peak: no spectral pulse peak at all.
-  //  - no_beats: the time-domain detector found <2 beats, so the spectral HR has
-  //    no independent corroboration (observed live: an 80 bpm read with no beats).
-  //  - hr_methods_disagree: spectral HR and beat-interval HR differ by >15 bpm.
-  //  - hrv_implausible: RMSSD >200 ms -> beats are noise, not a pulse.
-  const HARD_REASONS = ['no_peak', 'no_beats', 'hr_methods_disagree', 'hrv_implausible'];
+  // HR grade depends ONLY on the spectral peak (present, in-band, dominant, clean).
+  // Beat/HRV failures never veto a good HR -- HRV is reported separately. For a
+  // screening tool, false-'poor' (ask for a retake) beats showing an invented vital.
   let grade;
-  if (reasons.some((r) => HARD_REASONS.includes(r)) || reasons.length >= 2) grade = 'poor';
-  else if (reasons.length === 1) grade = 'fair';
-  else grade = 'good';
+  if (reasons.includes('no_peak') || reasons.includes('low_snr')
+      || reasons.includes('ambiguous_peak') || reasons.includes('few_frames')) {
+    grade = 'poor';
+  } else if (reasons.includes('moderate_snr') || reasons.includes('hr_methods_disagree')) {
+    grade = 'fair';
+  } else {
+    grade = 'good';
+  }
 
   return {
     hrBpm: Number.isFinite(hrBpm) ? hrBpm : null,
