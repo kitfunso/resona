@@ -150,15 +150,18 @@ test('SAFETY: in-band motion interference must not produce a confident wrong HR'
   );
 });
 
-test('SAFETY: pure noise (no pulse) must grade "poor"', () => {
-  const { samples, durationSec } = makeRppg({
-    bpm: 72, acAmp: 0, noiseStd: 0.01, jitterMs: 8, seed: 999,
-  });
-  const out = extractHeartFeatures({ samples, durationSec });
-  assert.equal(
-    out.grade, 'poor',
-    `pure noise graded '${out.grade}' (hr=${out.hrBpm?.toFixed(1)}, reasons=${JSON.stringify(out.reasons)}) — should be 'poor'`,
-  );
+test('SAFETY: no-pulse captures grade poor and never report an out-of-band HR (multi-seed)', () => {
+  // Mirrors the live failure: 5 resting captures scattered 32-93 bpm with
+  // impossible RMSSD. Across seeds, pure noise must grade 'poor', and any HR it
+  // does compute must stay inside the 42-240 bpm band (parabolic-interp clamp).
+  for (const seed of [1, 17, 101, 404, 999]) {
+    const { samples, durationSec } = makeRppg({ bpm: 72, acAmp: 0, noiseStd: 0.01, jitterMs: 8, seed });
+    const out = extractHeartFeatures({ samples, durationSec });
+    assert.equal(out.grade, 'poor', `seed ${seed}: graded '${out.grade}' on pure noise (hr=${out.hrBpm}, reasons=${JSON.stringify(out.reasons)})`);
+    if (out.hrBpm != null) {
+      assert.ok(out.hrBpm >= 40 && out.hrBpm <= 242, `seed ${seed}: out-of-band HR ${out.hrBpm}`);
+    }
+  }
 });
 
 test('SAFETY: flat (zero-variance) signal grades poor with no_peak', () => {

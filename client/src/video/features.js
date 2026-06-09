@@ -151,7 +151,11 @@ export function extractHeartFeatures({ samples, durationSec }) {
     const m1 = Math.sqrt(peakMag);
     const m2 = Math.sqrt(re[peakBin + 1] * re[peakBin + 1] + im[peakBin + 1] * im[peakBin + 1]);
     const denom = (m0 - 2 * m1 + m2);
-    const delta = denom !== 0 ? 0.5 * (m0 - m2) / denom : 0;
+    // Clamp to +/-0.5 bin: the true peak is within half a bin of the max. Left
+    // unclamped, a near-zero denom on a noisy/flat spectrum yields a huge delta
+    // and an out-of-band HR (observed live: 32.1 and 93.2 bpm on noise captures).
+    const rawDelta = denom !== 0 ? 0.5 * (m0 - m2) / denom : 0;
+    const delta = Math.max(-0.5, Math.min(0.5, rawDelta));
     const peakHz = (peakBin + delta) * binHz;
     hrBpm = peakHz * 60;
     const otherSum = bandSum - peakMag;
@@ -207,7 +211,8 @@ export function extractHeartFeatures({ samples, durationSec }) {
     const ms = (peaks[i] - peaks[i - 1]) * (1000 / TARGET_FPS);
     if (ms >= 250 && ms <= 2000) rr.push(ms);
   }
-  if (rr.length < 20) reasons.push('few_beats');
+  if (rr.length < 2) reasons.push('no_beats');
+  else if (rr.length < 20) reasons.push('few_beats');
 
   let hrvRmssdMs = null;
   let sdnnMs = null;
@@ -221,6 +226,10 @@ export function extractHeartFeatures({ samples, durationSec }) {
     let mean = 0; for (const x of rr) mean += x; mean /= rr.length;
     let varSum = 0; for (const x of rr) varSum += (x - mean) * (x - mean);
     sdnnMs = Math.sqrt(varSum / rr.length);
+    // RMSSD above ~200 ms is non-physiologic (real resting RMSSD ~20-60 ms): it
+    // means the beat detector is firing on noise, not heartbeats. Observed live:
+    // 477-600 ms on captures that also scattered HR by 60 bpm.
+    if (hrvRmssdMs > 200) reasons.push('hrv_implausible');
   }
 
   // Method-agreement check.
@@ -233,13 +242,13 @@ export function extractHeartFeatures({ samples, durationSec }) {
 
   // Hard disqualifiers: any single one means we cannot trust a number, so we
   // refuse to show one (grade 'poor' -> the UI short-circuits to coaching).
+  // For a screening tool, false-'poor' (retake) beats showing an invented vital.
   //  - no_peak: no spectral pulse peak at all.
-  //  - hr_methods_disagree: the spectral HR and the beat-interval HR differ by
-  //    >15 bpm, i.e. two independent estimators of the same quantity diverge.
-  //    By construction we do not have a measurement, so a number here is a
-  //    confident-wrong risk (e.g. pure noise -> a spurious ~142 bpm). For a
-  //    screening tool, false-'poor' (retake) beats showing an invented vital.
-  const HARD_REASONS = ['no_peak', 'hr_methods_disagree'];
+  //  - no_beats: the time-domain detector found <2 beats, so the spectral HR has
+  //    no independent corroboration (observed live: an 80 bpm read with no beats).
+  //  - hr_methods_disagree: spectral HR and beat-interval HR differ by >15 bpm.
+  //  - hrv_implausible: RMSSD >200 ms -> beats are noise, not a pulse.
+  const HARD_REASONS = ['no_peak', 'no_beats', 'hr_methods_disagree', 'hrv_implausible'];
   let grade;
   if (reasons.some((r) => HARD_REASONS.includes(r)) || reasons.length >= 2) grade = 'poor';
   else if (reasons.length === 1) grade = 'fair';

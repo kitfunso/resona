@@ -62,7 +62,7 @@
     <table id="tbl"><thead><tr><th>#</th><th>rPPG HR</th><th>grade</th><th>snr</th><th>ref HR</th><th>Δ</th><th>light</th><th>act</th><th>skin</th></tr></thead><tbody></tbody></table>
 
     <script type="module">
-      import { captureRppg, buildFallbackRois } from '../src/video/recorder.js';
+      import { captureRppg, buildFallbackRois, detectFirstFrameRoi } from '../src/video/recorder.js';
       import { extractHeartFeatures } from '../src/video/features.js';
 
       const KEY = 'resona-validation-rows';
@@ -91,14 +91,22 @@
         try {
           $('start').disabled = true; $('save').disabled = true; $('result').textContent = '—';
           await ensureCamera();
-          $('status').textContent = 'capturing 30s — hold still';
-          const { rois } = buildFallbackRois($('v'));
-          const cap = await captureRppg({ videoEl: $('v'), durationMs: 30000, rois, onTick: ({ pct }) => { $('status').textContent = `capturing ${Math.round(pct * 100)}%`; } });
+          // Real product path: detect the face and read forehead/cheek ROIs;
+          // fall back to a centred patch only if no face is found.
+          $('status').textContent = 'finding face...';
+          let det = await detectFirstFrameRoi($('v'));
+          for (let i = 0; i < 3 && det.kind === 'no-face'; i++) {
+            await new Promise((r) => setTimeout(r, 500));
+            det = await detectFirstFrameRoi($('v'));
+          }
+          const roiKind = det.kind === 'face' ? 'face' : 'fallback';
+          const rois = det.kind === 'face' ? det.rois : buildFallbackRois($('v')).rois;
+          const cap = await captureRppg({ videoEl: $('v'), durationMs: 30000, rois, onTick: ({ pct }) => { $('status').textContent = `capturing ${Math.round(pct * 100)}% (${roiKind} roi)`; } });
           const feat = extractHeartFeatures({ samples: cap.samples, durationSec: cap.durationSec });
-          last = { rppgHr: feat.hrBpm != null ? +feat.hrBpm.toFixed(1) : null, grade: feat.grade, snr: feat.snr != null ? +feat.snr.toFixed(1) : null, rmssd: feat.hrvRmssdMs != null ? +feat.hrvRmssdMs.toFixed(1) : null, reasons: feat.reasons, framesUsed: feat.framesUsed };
+          last = { rppgHr: feat.hrBpm != null ? +feat.hrBpm.toFixed(1) : null, grade: feat.grade, snr: feat.snr != null ? +feat.snr.toFixed(1) : null, rmssd: feat.hrvRmssdMs != null ? +feat.hrvRmssdMs.toFixed(1) : null, reasons: feat.reasons, framesUsed: feat.framesUsed, roi: roiKind };
           $('result').textContent = feat.grade === 'poor'
-            ? `POOR (${feat.reasons.join(', ')}) — would show coaching, not a number`
-            : `${last.rppgHr} bpm · grade ${feat.grade} · snr ${last.snr} · rmssd ${last.rmssd ?? '—'} ms`;
+            ? `POOR (${feat.reasons.join(', ')}) — coaching, not a number · roi ${roiKind}`
+            : `${last.rppgHr} bpm · grade ${feat.grade} · snr ${last.snr} · rmssd ${last.rmssd ?? '—'} ms · roi ${roiKind}`;
           $('status').textContent = 'done — enter reference HR, then Save';
           $('save').disabled = false;
         } catch (e) {
@@ -120,7 +128,7 @@
 
       $('export').onclick = () => {
         const r = rows();
-        const cols = ['ts', 'rppgHr', 'grade', 'snr', 'rmssd', 'refHr', 'lighting', 'activity', 'skin', 'framesUsed', 'note'];
+        const cols = ['ts', 'rppgHr', 'grade', 'snr', 'rmssd', 'refHr', 'roi', 'lighting', 'activity', 'skin', 'framesUsed', 'note'];
         const csv = [cols.join(',')].concat(r.map((x) => cols.map((c) => {
           const val = x[c] ?? '';
           return typeof val === 'string' && (val.includes(',') || val.includes('"')) ? `"${val.replace(/"/g, '""')}"` : val;
