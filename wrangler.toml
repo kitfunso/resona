@@ -1,0 +1,19 @@
+# Cloudflare Pages config for the Resona project (resona-dmf.pages.dev).
+# The static client is built to client/dist; the API lives in functions/ as
+# Pages Functions, backed by a free D1 (SQLite) database. No Fly, no Postgres.
+
+name = "resona"
+pages_build_output_dir = "client/dist"
+compatibility_date = "2024-11-01"
+
+[vars]
+DEMO_MODE = "true"
+
+# SESSION_SECRET is a secret, NOT a var — set it with:
+#   wrangler pages secret put SESSION_SECRET
+# and for local `wrangler pages dev`, put it in .dev.vars (gitignored).
+
+[[d1_databases]]
+binding = "DB"
+database_name = "resona"
+database_id = "99455002-643e-4111-9d85-613888251294"

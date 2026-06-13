@@ -23,3 +23,7 @@ client/test-harness/*.y4m
 
 # Per-developer agent memory state (hippo-memory project store)
 .hippo/
+
+# Cloudflare Pages / Wrangler
+.dev.vars
+.wrangler/
