@@ -1,6 +1,6 @@
 # Sensor demo Worker
 
-This isolated Worker serves the sensor page and uses a SQLite Durable Object to limit OpenAI analysis to three attempts for the lifetime of this Worker. Failed provider attempts count. The counter persists across restarts and redeployments; restarting the Worker does not restore attempts.
+This Worker serves the earlier sensor page and the original app's Codex model reports. Both use one SQLite Durable Object with a shared lifetime limit of 24 attempts, including failures and attempts made before the limit changed. The counter persists across restarts and redeployments; restarting the Worker does not restore attempts. See [Codex analytics details](CODEX-ANALYSIS.md).
 
 From the repository root, install dependencies and prepare the files before deploying:
 

@@ -3,19 +3,21 @@ import assert from 'node:assert/strict';
 import worker, { AnalysisQuota, handleRequest, validateReadings } from './index.mjs';
 
 const token = 'a'.repeat(40);
+const codexToken = 'b'.repeat(40);
 const readings = { soundAboveRelativeThresholdSeconds: 5, breathRms: 0.2, walkingCadence: 110, stepsDetected: 15 };
 
 function fixture() {
   let attempts = 0;
-  const sql = { exec(query) {
+  const sql = { exec(query, limit) {
     if (query.startsWith('CREATE')) return { toArray: () => [] };
-    assert.match(query, /WHERE attempts < 3 RETURNING attempts/);
-    const rows = attempts < 3 ? [{ attempts: ++attempts }] : [];
+    assert.match(query, /WHERE attempts < \? RETURNING attempts/);
+    assert.equal(limit, 24);
+    const rows = attempts < limit ? [{ attempts: ++attempts }] : [];
     return { toArray: () => rows };
   } };
   const quota = new AnalysisQuota({ storage: { sql } });
   const env = {
-    SENSOR_ACCESS_TOKEN: token, OPENAI_API_KEY: 'mock-provider-key',
+    SENSOR_ACCESS_TOKEN: token, CODEX_ACCESS_TOKEN: codexToken, OPENAI_API_KEY: 'mock-provider-key',
     QUOTA: { idFromName: () => 'single-demo', get: () => ({ fetch: (url, init) => quota.fetch(new Request(url, init)) }) },
     ASSETS: { fetch: (request) => new Response(new URL(request.url).pathname) },
   };
@@ -71,21 +73,21 @@ test('a shared durable quota caps concurrent provider attempts', async () => {
   const { env, attempts } = fixture();
   let calls = 0;
   const fetchStub = async () => { calls++; await new Promise((resolve) => setTimeout(resolve, 10)); return provider()(); };
-  const results = await Promise.all(Array.from({ length: 8 }, () => handleRequest(request(), env, fetchStub)));
-  assert.equal(results.filter((result) => result.status === 200).length, 3);
-  assert.equal(results.filter((result) => result.status === 429).length, 5);
-  assert.equal(attempts(), 3);
-  assert.equal(calls, 3);
+  const results = await Promise.all(Array.from({ length: 28 }, () => handleRequest(request(), env, fetchStub)));
+  assert.equal(results.filter((result) => result.status === 200).length, 24);
+  assert.equal(results.filter((result) => result.status === 429).length, 4);
+  assert.equal(attempts(), 24);
+  assert.equal(calls, 24);
 });
 
 test('provider failures count as attempts and are never retried', async () => {
   const { env, attempts } = fixture();
   let calls = 0;
   const fetchStub = async () => { calls++; throw new Error('mock provider failed'); };
-  for (let i = 0; i < 3; i++) assert.equal((await handleRequest(request(), env, fetchStub)).status, 503);
+  for (let i = 0; i < 24; i++) assert.equal((await handleRequest(request(), env, fetchStub)).status, 503);
   assert.equal((await handleRequest(request(), env, fetchStub)).status, 429);
-  assert.equal(attempts(), 3);
-  assert.equal(calls, 3);
+  assert.equal(attempts(), 24);
+  assert.equal(calls, 24);
 });
 
 test('provider output is rejected unless its action is allowed for the readings', async () => {
@@ -106,13 +108,101 @@ test('static routes allow only prepared demo files', async () => {
   }
 });
 
-test('Codex route fails closed without reserving quota or contacting a provider', async () => {
+function codexRequest(body, auth = codexToken, contentType = 'application/json') {
+  return new Request('https://example.test/api/codex-analysis', {
+    method: 'POST', headers: { authorization: `Bearer ${auth}`, 'content-type': contentType }, body: JSON.stringify(body),
+  });
+}
+
+function codexProvider(action = 'none') {
+  return async () => Response.json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ action }) }] }] });
+}
+
+test('Codex route rejects unauthorised and malformed input before reserving quota', async () => {
   const { env, attempts } = fixture();
   let calls = 0;
-  const result = await handleRequest(new Request('https://example.test/api/codex-analysis', { method: 'POST', body: '{}' }), env, async () => { calls++; });
-  assert.equal(result.status, 503);
+  const fetchStub = async () => { calls++; };
+  const body = { modality: 'breath', readings: { rmsEnergy: 0.2 } };
+  assert.equal((await handleRequest(codexRequest(body, token), env, fetchStub)).status, 401);
+  assert.equal((await handleRequest(codexRequest(body, codexToken, 'text/plain'), env, fetchStub)).status, 415);
+  assert.equal((await handleRequest(codexRequest({ ...body, rawAudio: [1] }), env, fetchStub)).status, 400);
+  assert.equal((await handleRequest(codexRequest({ junk: 'x'.repeat(1500) }), env, fetchStub)).status, 400);
+  assert.equal((await handleRequest(codexRequest(body), { ...env, CODEX_ACCESS_TOKEN: '' }, fetchStub)).status, 503);
   assert.equal(calls, 0);
   assert.equal(attempts(), 0);
+});
+
+test('Codex model receives only bounded numeric readings and returns the requested module report', async () => {
+  const examples = [
+    [{ modality: 'breath', readings: { rmsEnergy: 0.2, activeSec10: 4 } }, 'retry_quiet', /4\.0 seconds/],
+    [{ modality: 'motion', readings: { stepsDetected: 10, cadence: 110 } }, 'repeat_walk', /110 steps per minute/],
+    [{ modality: 'heart', readings: { hrBpm: 72, durationSec: 30 } }, 'retry_light', /72 beats per minute/],
+  ];
+  for (const [body, action, expected] of examples) {
+    const { env, attempts } = fixture();
+    const fetchStub = async (url, options) => {
+      assert.equal(url, 'https://api.openai.com/v1/responses');
+      const sent = JSON.parse(options.body);
+      assert.equal(sent.model, 'gpt-5.3-codex');
+      assert.equal(sent.reasoning.effort, 'low');
+      assert.equal(sent.max_output_tokens, 768);
+      assert.equal(sent.store, false);
+      assert.deepEqual(JSON.parse(sent.input), body);
+      assert.equal(sent.tools, undefined);
+      return codexProvider(action)();
+    };
+    const result = await handleRequest(codexRequest(body), env, fetchStub);
+    assert.equal(result.status, 200);
+    const report = await result.json();
+    assert.equal(report.source, 'codex');
+    assert.match(report.interpretation, expected);
+    assert.equal(attempts(), 1);
+  }
+});
+
+test('Codex rejects malformed output and never retries provider failures', async () => {
+  const body = { modality: 'heart', readings: { hrBpm: 72 } };
+  for (const fetchStub of [codexProvider('diagnosis'), async () => Response.json({ status: 'incomplete', output: [] }), async () => new Response('', { status: 500 }), async () => { throw new Error('offline'); }]) {
+    const { env, attempts } = fixture();
+    assert.equal((await handleRequest(codexRequest(body), env, fetchStub)).status, 503);
+    assert.equal(attempts(), 1);
+  }
+});
+
+test('Codex and the earlier sensor demo share a single durable quota', async () => {
+  const { env, attempts } = fixture();
+  for (let i = 0; i < 23; i++) assert.equal((await handleRequest(request(), env, provider())).status, 200);
+  assert.equal((await handleRequest(codexRequest({ modality: 'breath', readings: { rmsEnergy: 0.2 } }), env, codexProvider())).status, 200);
+  assert.equal((await handleRequest(codexRequest({ modality: 'heart', readings: { hrBpm: 72 } }), env, codexProvider())).status, 429);
+  assert.equal(attempts(), 24);
+});
+
+test('failure logs contain only generated IDs and safe categories and statuses', async () => {
+  const body = { modality: 'heart', readings: { hrBpm: 72 } };
+  const events = [];
+  const secretMarker = 'sensitive-demo-marker';
+  const { env } = fixture();
+  env.OPENAI_API_KEY = secretMarker;
+  const logger = (event) => events.push(event);
+  const rejected = await handleRequest(codexRequest(body), env, async () => new Response(secretMarker, { status: 403 }), logger);
+  const malformed = await handleRequest(codexRequest(body), env, async () => Response.json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: secretMarker }] }] }), logger);
+  const unavailable = await handleRequest(codexRequest(body), env, async () => { throw new Error(secretMarker); }, logger);
+  const denied = await handleRequest(codexRequest(body, token), env, codexProvider(), logger);
+  assert.equal(rejected.status, 503);
+  assert.equal(malformed.status, 503);
+  assert.equal(unavailable.status, 503);
+  assert.equal(denied.status, 401);
+  assert.deepEqual(events.map(({ category, status }) => ({ category, status })), [
+    { category: 'provider_http', status: 403 },
+    { category: 'provider_output', status: undefined },
+    { category: 'provider_network', status: undefined },
+    { category: 'access_denied', status: 401 },
+  ]);
+  for (const event of events) {
+    assert.match(event.requestId, /^[0-9a-f-]{36}$/);
+    assert.ok(Object.keys(event).every((key) => ['requestId', 'category', 'status'].includes(key)));
+  }
+  assert.doesNotMatch(JSON.stringify(events), /sensitive-demo-marker|hrBpm|Bearer/);
 });
 
 test('Worker entry point ignores Cloudflare execution context as a provider', async (t) => {

@@ -6,7 +6,7 @@ import ResultsView from './ResultsView.jsx';
 import NeuroView from './NeuroView.jsx';
 import HeartView from './HeartView.jsx';
 import HistoryView from './HistoryView.jsx';
-import { logout } from '../auth.js';
+import { fetchHealth, logout } from '../auth.js';
 
 const DURATION_MS = 6000;
 
@@ -514,7 +514,14 @@ export default function ParticipantView({ onSignOut }) {
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState(null);
   const [arming, setArming] = useState(false);
+  const [codexAvailable, setCodexAvailable] = useState(false);
   const captureRef = useRef(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchHealth().then((health) => { if (mounted) setCodexAvailable(health?.codexAnalytics === true); });
+    return () => { mounted = false; };
+  }, []);
 
   useEffect(() => {
     function stopHiddenCapture() {
@@ -746,6 +753,7 @@ export default function ParticipantView({ onSignOut }) {
         <ResultsView
           estimate={estimate}
           analysis={analysis}
+          codexAvailable={codexAvailable}
           onAnalyze={handleAnalysis}
           onRetry={resetToBlow}
           onStartOver={resetToBlow}
@@ -757,6 +765,7 @@ export default function ParticipantView({ onSignOut }) {
 
       {stage === 'neuro' && (
         <NeuroView
+          codexAvailable={codexAvailable}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
           onHeart={() => setStage('heart')}
         />
@@ -764,6 +773,7 @@ export default function ParticipantView({ onSignOut }) {
 
       {stage === 'heart' && (
         <HeartView
+          codexAvailable={codexAvailable}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
         />
       )}

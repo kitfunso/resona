@@ -1,4 +1,8 @@
+import { validateCodexInput, reportFromCodexCode, codexActionSchema } from './codex-report.mjs';
+
 const MAX_BODY_BYTES = 1024;
+const MAX_ATTEMPTS = 24;
+const CODEX_INSTRUCTIONS = 'Choose one practical recording tip from the allowed actions using only the provided experimental phone-sensor readings. These readings are not validated medical measurements. Do not infer a diagnosis, disease, health status, or treatment. If there is no clear recording-quality reason for a tip, choose none. Breath sound includes background noise. Motion cadence is approximate and depends on phone position. Heart rate is a camera estimate affected by lighting and movement.';
 const FIELDS = Object.freeze({
   soundAboveRelativeThresholdSeconds: { min: 0, max: 30 },
   breathRms: { min: 0, max: 1 },
@@ -13,6 +17,24 @@ const FORMAT = Object.freeze({
 
 function json(status, data) {
   return Response.json(data, { status, headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
+}
+
+class AnalysisFailure extends Error {
+  constructor(category, status) {
+    super('Analysis failed');
+    this.category = category;
+    this.status = status;
+  }
+}
+
+function logFailure(log, category, status) {
+  const event = { requestId: crypto.randomUUID(), category };
+  if (Number.isInteger(status) && status >= 100 && status <= 599) event.status = status;
+  log(event);
+}
+
+function defaultLogger(event) {
+  console.error('[analysis]', JSON.stringify(event));
 }
 
 export function validateReadings(value) {
@@ -73,9 +95,11 @@ async function requestAnalysis(readings, apiKey, fetchImpl) {
     body: JSON.stringify({ model: 'gpt-6-luna', reasoning: { effort: 'none' }, max_output_tokens: 180, store: false, instructions: INSTRUCTIONS, input: JSON.stringify(readings), text: { format: FORMAT } }),
     signal: AbortSignal.timeout(30_000),
   });
-  if (!response.ok) throw new Error('Provider request failed');
-  const result = JSON.parse(responseText(await response.json()));
-  if (!result || Object.keys(result).length !== 1 || !Object.hasOwn(result, 'nextAction')) throw new Error('Provider response unsuitable');
+  if (!response.ok) throw new AnalysisFailure('provider_http', response.status);
+  let result;
+  try { result = JSON.parse(responseText(await response.json())); }
+  catch { throw new AnalysisFailure('provider_output'); }
+  if (!result || Object.keys(result).length !== 1 || !Object.hasOwn(result, 'nextAction')) throw new AnalysisFailure('provider_output');
   const hasSound = Object.hasOwn(readings, 'breathRms') || Object.hasOwn(readings, 'soundAboveRelativeThresholdSeconds');
   const hasWalk = Object.hasOwn(readings, 'walkingCadence') || Object.hasOwn(readings, 'stepsDetected');
   const actions = {
@@ -84,8 +108,31 @@ async function requestAnalysis(readings, apiKey, fetchImpl) {
     none: 'You can keep these readings as a snapshot of this recording.',
   };
   const action = Object.hasOwn(actions, result.nextAction) ? actions[result.nextAction] : null;
-  if (!action) throw new Error('Provider response unsuitable');
+  if (!action) throw new AnalysisFailure('provider_output');
   return `${action} Sound levels can include background noise, and detected cadence is approximate. These readings are not a medical assessment.`;
+}
+
+async function requestCodexReport(input, apiKey, fetchImpl) {
+  const response = await fetchImpl('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: 'gpt-5.3-codex', reasoning: { effort: 'low' }, max_output_tokens: 768, store: false,
+      instructions: CODEX_INSTRUCTIONS, input: JSON.stringify(input),
+      text: { format: { type: 'json_schema', name: 'resona_observation', strict: true, schema: codexActionSchema(input.modality, input.readings) } },
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new AnalysisFailure('provider_http', response.status);
+  let result;
+  try { result = await response.json(); }
+  catch { throw new AnalysisFailure('provider_output'); }
+  if (!result || result.status !== 'completed') throw new AnalysisFailure('provider_incomplete');
+  let report;
+  try { report = reportFromCodexCode(input.modality, JSON.parse(responseText(result)), input.readings); }
+  catch { throw new AnalysisFailure('provider_output'); }
+  if (!report) throw new AnalysisFailure('provider_output');
+  return report;
 }
 
 export class AnalysisQuota {
@@ -96,17 +143,15 @@ export class AnalysisQuota {
 
   async fetch(request) {
     if (request.method !== 'POST' || new URL(request.url).pathname !== '/reserve') return json(404, { error: 'Not found.' });
-    const rows = this.sql.exec('INSERT INTO demo_quota (id, attempts) VALUES (1, 1) ON CONFLICT(id) DO UPDATE SET attempts = attempts + 1 WHERE attempts < 3 RETURNING attempts').toArray();
+    const rows = this.sql.exec('INSERT INTO demo_quota (id, attempts) VALUES (1, 1) ON CONFLICT(id) DO UPDATE SET attempts = attempts + 1 WHERE attempts < ? RETURNING attempts', MAX_ATTEMPTS).toArray();
     return rows.length ? json(200, { reserved: true }) : json(429, { error: 'The demo analysis limit has been reached.' });
   }
 }
 
-export async function handleRequest(request, env, fetchImpl = fetch) {
+export async function handleRequest(request, env, fetchImpl = fetch, log = defaultLogger) {
   const pathname = new URL(request.url).pathname;
-  if (pathname === '/api/codex-analysis') {
-    return json(503, { error: 'Codex analysis is unavailable.' });
-  }
-  if (pathname !== '/api/sensor-analysis') {
+  const isCodex = pathname === '/api/codex-analysis';
+  if (pathname !== '/api/sensor-analysis' && !isCodex) {
     if (!['GET', 'HEAD'].includes(request.method)) return json(404, { error: 'Not found.' });
     if (pathname !== '/' && pathname !== '/sensor' && pathname !== '/sensor.html' && !/^\/assets\/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(js|css)$/.test(pathname)) return json(404, { error: 'Not found.' });
     const url = new URL(request.url);
@@ -114,19 +159,34 @@ export async function handleRequest(request, env, fetchImpl = fetch) {
     return env.ASSETS.fetch(new Request(url, request));
   }
   if (request.method !== 'POST') return json(404, { error: 'Not found.' });
-  if (!env.OPENAI_API_KEY || !env.SENSOR_ACCESS_TOKEN || !env.QUOTA) return json(503, { error: 'Analysis is not configured.' });
-  if (!(await authorised(request.headers.get('authorization'), env.SENSOR_ACCESS_TOKEN))) return json(401, { error: 'Access denied.' });
+  const accessToken = isCodex ? env.CODEX_ACCESS_TOKEN : env.SENSOR_ACCESS_TOKEN;
+  if (!env.OPENAI_API_KEY || !accessToken || !env.QUOTA) {
+    logFailure(log, 'not_configured', 503);
+    return json(503, { error: 'Analysis is not configured.' });
+  }
+  if (!(await authorised(request.headers.get('authorization'), accessToken))) {
+    logFailure(log, 'access_denied', 401);
+    return json(401, { error: 'Access denied.' });
+  }
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) return json(415, { error: 'Use JSON for the readings.' });
-  const readings = validateReadings(await readBody(request));
+  const raw = await readBody(request);
+  const readings = isCodex ? validateCodexInput(raw) : validateReadings(raw);
   if (!readings) return json(400, { error: 'The readings could not be accepted.' });
+  let stage = 'quota';
   try {
     const id = env.QUOTA.idFromName('resona-sensor-demo');
     const reservation = await env.QUOTA.get(id).fetch('https://quota.invalid/reserve', { method: 'POST' });
-    if (reservation.status === 429) return json(429, { error: 'The demo analysis limit has been reached.' });
-    if (!reservation.ok) throw new Error('Quota unavailable');
-    const analysis = await requestAnalysis(readings, env.OPENAI_API_KEY, fetchImpl);
-    return json(200, { analysis });
-  } catch {
+    if (reservation.status === 429) {
+      logFailure(log, 'quota_exhausted', 429);
+      return json(429, { error: 'The demo analysis limit has been reached.' });
+    }
+    if (!reservation.ok) throw new AnalysisFailure('quota_http', reservation.status);
+    stage = 'provider';
+    if (isCodex) return json(200, await requestCodexReport(readings, env.OPENAI_API_KEY, fetchImpl));
+    return json(200, { analysis: await requestAnalysis(readings, env.OPENAI_API_KEY, fetchImpl) });
+  } catch (error) {
+    const category = error instanceof AnalysisFailure ? error.category : stage === 'quota' ? 'quota_unavailable' : error?.name === 'TimeoutError' ? 'provider_timeout' : 'provider_network';
+    logFailure(log, category, error instanceof AnalysisFailure ? error.status : undefined);
     return json(503, { error: 'Analysis is unavailable. Your readings are still shown on this device.' });
   }
 }

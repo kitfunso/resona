@@ -288,7 +288,7 @@ async function prep(seconds, onTick) {
   onTick(0);
 }
 
-export default function HeartView({ onBack }) {
+export default function HeartView({ onBack, codexAvailable = false }) {
   useCss();
   const [stage, setStage] = useState('intro');
   const [prepCount, setPrepCount] = useState(PREP_SECONDS);
@@ -434,7 +434,7 @@ export default function HeartView({ onBack }) {
       if (result.report?.source !== 'codex') throw new Error('Report unavailable');
       if (mountedRef.current) setReport(result.report);
     } catch {
-      if (mountedRef.current) setReportError('The Codex report is unavailable. Your readings are still shown on this device.');
+      if (mountedRef.current) setReportError('The Codex model report is unavailable. Your readings are still shown on this device.');
     } finally {
       if (mountedRef.current) setReportLoading(false);
     }
@@ -530,9 +530,9 @@ export default function HeartView({ onBack }) {
 
           {!report && (
             <div className="hv-report">
-              <p className="interp">A Codex report is currently unavailable. When available, choosing it sends numerical readings to our server and OpenAI. A successful report and its readings are saved with your account; an unavailable report is not saved. Raw video stays on your phone. Agent session data is retained until deletion; OpenAI may retain monitoring logs. Readings can still be personal information.</p>
-              <button className="hv-btn" disabled onClick={fetchReport}>
-                <span>Codex report unavailable</span><span aria-hidden="true">→</span>
+              <p className="interp">{codexAvailable ? 'Choosing a report sends your numerical readings to our server and OpenAI. Successful reports and their readings are saved with your account. OpenAI may retain safety monitoring logs. Readings can be personal information. Raw video stays on your phone.' : 'The Codex model report is currently unavailable. Your readings remain on this device.'}</p>
+              <button className="hv-btn" disabled={!codexAvailable || reportLoading} onClick={fetchReport}>
+                <span>{reportLoading ? 'Preparing report…' : codexAvailable ? 'Get Codex model report' : 'Codex model report unavailable'}</span><span aria-hidden="true">→</span>
               </button>
               {reportError && <p className="hv-error" role="alert">{reportError}</p>}
             </div>
@@ -540,7 +540,7 @@ export default function HeartView({ onBack }) {
 
           {report && (
             <div className="hv-report">
-              <p className="hv-step-desc">Codex report</p>
+              <p className="hv-step-desc">Codex model report</p>
               <p className="headline">{report.headline}</p>
               {report.interpretation && <p className="interp">{report.interpretation}</p>}
               {Array.isArray(report.actions) && (

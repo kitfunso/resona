@@ -1,5 +1,5 @@
 const FIELDS = Object.freeze({
-  breath: { rmsEnergy: [0, 1], activeSec10: [0, 30], peakEnv: [0, 1] },
+  breath: { rmsEnergy: [0, 10], activeSec10: [0, 30], peakEnv: [0, 10] },
   motion: { dominantFrequencyHz: [0, 100], sampleRate: [0, 500], stepsDetected: [0, 300, true], cadence: [0, 300], stridesCv: [0, 10], symmetryIndex: [0, 1] },
   heart: { hrBpm: [0, 300], hrvRmssdMs: [0, 1000], sdnnMs: [0, 1000], beatCount: [0, 300, true], durationSec: [0, 120] },
 });
@@ -11,6 +11,7 @@ const ACTIONS = Object.freeze({
   },
   motion: {
     repeat_walk: { title: 'Repeat the walk', detail: 'Keep the phone in the same position if you compare recordings.' },
+    steady_phone: { title: 'Keep the phone steady', detail: 'If you repeat the stillness recording, support your phone in the same position.' },
     none: { title: 'Keep this snapshot', detail: 'Phone motion readings depend on how you carry the device.' },
   },
   heart: {
@@ -42,16 +43,32 @@ export function validateCodexInput(input) {
   return Object.keys(accepted).length ? { modality: input.modality, readings: accepted } : null;
 }
 
-export function reportFromCodexCode(modality, result) {
+function snapshot(modality, readings) {
+  if (!readings) return '';
+  if (modality === 'breath' && Number.isFinite(readings.activeSec10)) return ` Sound stayed above the relative threshold for ${readings.activeSec10.toFixed(1)} seconds.`;
+  if (modality === 'motion' && Number.isFinite(readings.cadence)) return ` The estimated walking cadence was ${Math.round(readings.cadence)} steps per minute.`;
+  if (modality === 'motion' && Number.isFinite(readings.dominantFrequencyHz)) return ` The strongest recorded motion frequency was ${readings.dominantFrequencyHz.toFixed(1)} Hz.`;
+  if (modality === 'heart' && Number.isFinite(readings.hrBpm)) return ` The estimated pulse was ${Math.round(readings.hrBpm)} beats per minute.`;
+  return '';
+}
+
+export function reportFromCodexCode(modality, result, readings) {
   if (!result || typeof result !== 'object' || Array.isArray(result) || Object.keys(result).length !== 1 || typeof result.action !== 'string') return null;
   const choices = Object.hasOwn(ACTIONS, modality) ? ACTIONS[modality] : null;
   const action = choices && Object.hasOwn(choices, result.action) ? choices[result.action] : null;
   if (!action) return null;
-  return { headline: 'Your recording snapshot', interpretation: INTERPRETATION[modality], actions: [{ ...action }], source: 'codex' };
+  if (readings && !codexActionSchema(modality, readings).properties.action.enum.includes(result.action)) return null;
+  return { headline: 'Your recording snapshot', interpretation: `${INTERPRETATION[modality]}${snapshot(modality, readings)}`, actions: [{ ...action }], source: 'codex' };
 }
 
-export function codexActionSchema(modality) {
+export function codexActionSchema(modality, readings) {
   const actions = Object.hasOwn(ACTIONS, modality) ? ACTIONS[modality] : null;
   if (!actions) return null;
-  return { type: 'object', additionalProperties: false, properties: { action: { type: 'string', enum: Object.keys(actions) } }, required: ['action'] };
+  const options = Object.keys(actions).filter((action) => {
+    if (modality !== 'motion' || !readings) return true;
+    if (action === 'repeat_walk') return Number.isFinite(readings.cadence) || Number.isFinite(readings.stepsDetected);
+    if (action === 'steady_phone') return Number.isFinite(readings.dominantFrequencyHz) || Number.isFinite(readings.sampleRate);
+    return true;
+  });
+  return { type: 'object', additionalProperties: false, properties: { action: { type: 'string', enum: options } }, required: ['action'] };
 }

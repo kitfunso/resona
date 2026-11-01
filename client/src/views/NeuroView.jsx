@@ -687,7 +687,7 @@ function startAudioKeepalive() {
   }
 }
 
-export default function NeuroView({ onBack, onHeart }) {
+export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
   useCss();
   const [stage, setStage] = useState('intro');
   const [progress, setProgress] = useState(0);
@@ -727,12 +727,14 @@ export default function NeuroView({ onBack, onHeart }) {
         gait: { stepsDetected: currentGait?.stepsDetected ?? null, cadence: currentGait?.cadence ?? null, stridesCv: currentGait?.stridesCv ?? null, symmetryIndex: currentGait?.symmetryIndex ?? null },
       });
       if (data.report?.source !== 'codex') throw new Error('Report unavailable');
-      setReport(data.report);
+      if (mountedRef.current) setReport(data.report);
     } catch {
-      setReport(null);
-      setReportError('The Codex report is unavailable. Your readings are still shown on this device.');
+      if (mountedRef.current) {
+        setReport(null);
+        setReportError('The Codex model report is unavailable. Your readings are still shown on this device.');
+      }
     } finally {
-      setReportLoading(false);
+      if (mountedRef.current) setReportLoading(false);
     }
   }
 
@@ -1022,9 +1024,9 @@ export default function NeuroView({ onBack, onHeart }) {
       {/* Neuro report */}
       {stage === 'gait_done' && !reportLoading && !report && (
         <div className="nv-report">
-          <p className="interp">A Codex report is currently unavailable. When available, choosing it sends numerical readings to our server and OpenAI. A successful report and its readings are saved with your account; an unavailable report is not saved. Raw motion stays on your phone. Agent session data is retained until deletion; OpenAI may retain monitoring logs. Readings can still be personal information.</p>
-          <button className="nv-btn" disabled onClick={() => fetchReport(tremor, gait)}>
-            <span>Codex report unavailable</span><span className="arrow">→</span>
+          <p className="interp">{codexAvailable ? 'Choosing a report sends your numerical readings to our server and OpenAI. Successful reports and their readings are saved with your account. OpenAI may retain safety monitoring logs. Readings can be personal information. Raw motion stays on your phone.' : 'The Codex model report is currently unavailable. Your readings remain on this device.'}</p>
+          <button className="nv-btn" disabled={!codexAvailable} onClick={() => fetchReport(tremor, gait)}>
+            <span>{codexAvailable ? 'Get Codex model report' : 'Codex model report unavailable'}</span><span className="arrow">→</span>
           </button>
           {reportError && <p className="nv-error" role="alert">{reportError}</p>}
         </div>
@@ -1036,7 +1038,7 @@ export default function NeuroView({ onBack, onHeart }) {
               <span /><span /><span /><span /><span /><span /><span />
             </div>
             <div className="nv-analyzing-label">Reading your motion trace...</div>
-            <div className="nv-analyzing-sub">Codex is preparing your report</div>
+            <div className="nv-analyzing-sub">The Codex model is preparing your report</div>
           </div>
         </div>
       )}
@@ -1061,7 +1063,7 @@ export default function NeuroView({ onBack, onHeart }) {
                   border: report.source === 'codex' ? '1px solid var(--brass-line)' : '1px solid rgba(209, 133, 137, 0.2)',
                 }}
               >
-                {report.source === 'codex' ? '● Codex' : '○ template'}
+                {report.source === 'codex' ? '● Codex model' : '○ template'}
               </span>
             )}
           </div>

@@ -52,6 +52,16 @@ test('health advertises guest mode only when securely configured', async () => {
   assert.equal((await onRequestGet({ env: setup(secret()).env }).json()).demo, true);
 });
 
+test('health advertises Codex reports only with a secure configured service', async () => {
+  const state = setup(secret());
+  assert.equal((await onRequestGet({ env: state.env }).json()).codexAnalytics, false);
+  state.env.CODEX_ANALYTICS_URL = 'http://example.test/api/codex-analysis';
+  state.env.CODEX_ACCESS_TOKEN = secret();
+  assert.equal((await onRequestGet({ env: state.env }).json()).codexAnalytics, false);
+  state.env.CODEX_ANALYTICS_URL = 'https://example.test/api/codex-analysis';
+  assert.equal((await onRequestGet({ env: state.env }).json()).codexAnalytics, true);
+});
+
 const sqlite = await import('node:sqlite').catch(() => null);
 test('concurrent authorized requests cannot exceed the permanent demo cap', { skip: !sqlite }, async () => {
   const database = new sqlite.DatabaseSync(':memory:');

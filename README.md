@@ -4,7 +4,7 @@
 
 The DevDay work continues the original Resona app described below. The updated app is deployed at [resona-devday-original-2026.pages.dev](https://resona-devday-original-2026.pages.dev/); guest sign-in requires the private demo link shared separately. The earlier live app at [resona-dmf.pages.dev](https://resona-dmf.pages.dev/) still shows older, unvalidated health estimates; do not use them for medical decisions.
 
-The update preserves the existing breath, motion and heart screens, removes some unsupported claims and prepares an optional Codex report. The Codex report is currently unavailable: the API rejected the requested session spending control. See [Codex analytics status](tools/sensor-cloud/CODEX-ANALYSIS.md), the [updated slides](submission/Resona-DevDay.pptx) and [demo script](submission/Resona-DevDay-script.md).
+The update preserves the existing breath, motion and heart screens and removes unsupported claims. After a capture, a participant can choose a Codex model report: the app sends derived numerical readings to OpenAI, and the model selects a recording tip from fixed, non-medical options. Raw recordings stay on the device. Successful reports and their readings are saved with the guest account. See [Codex analytics details](tools/sensor-cloud/CODEX-ANALYSIS.md), the [updated slides](submission/Resona-DevDay.pptx) and [demo script](submission/Resona-DevDay-script.md).
 
 To run the Pages demo locally, install dependencies with `npm ci` and build with `npm run build --workspace=client`. Set `SESSION_SECRET` and a random `DEMO_ACCESS_TOKEN` of at least 32 URL-safe characters in your shell. Then run:
 
