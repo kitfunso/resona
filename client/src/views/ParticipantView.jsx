@@ -824,6 +824,7 @@ export default function ParticipantView({ onSignOut }) {
         <HistoryView
           onBack={() => setStage(estimate ? 'results' : 'blow')}
           onBreath={() => setStage('blow')}
+          onMotion={() => setStage('neuro')}
           onHeart={() => setStage('heart')}
         />
       )}

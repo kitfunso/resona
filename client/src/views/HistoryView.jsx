@@ -360,7 +360,7 @@ function formatLocalTime(iso) {
   return `${hh}:${mm}`;
 }
 
-export default function HistoryView({ onBack, onBreath, onHeart }) {
+export default function HistoryView({ onBack, onBreath, onMotion, onHeart }) {
   useCss();
   const [stage, setStage] = useState('loading');
   // 'loading' | 'empty' | 'list' | 'error'
@@ -457,6 +457,12 @@ export default function HistoryView({ onBack, onBreath, onHeart }) {
             {onBreath && (
               <button type="button" className="hsv-cta" onClick={onBreath}>
                 <span>Take a Breath reading</span>
+                <span className="arrow">{'→'}</span>
+              </button>
+            )}
+            {onMotion && (
+              <button type="button" className="hsv-cta" onClick={onMotion}>
+                <span>Take a Motion reading</span>
                 <span className="arrow">{'→'}</span>
               </button>
             )}

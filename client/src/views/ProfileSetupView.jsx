@@ -213,11 +213,10 @@ function useCss() {
   }
 }
 
-function validate({ ageYears, sex, heightCm, ethnicity }) {
+function validate({ ageYears, sex, heightCm }) {
   if (!sex) return 'Please pick male or female for sex at birth.';
   if (!Number.isFinite(ageYears) || ageYears < 20 || ageYears > 80) return 'Age must be between 20 and 80.';
   if (!Number.isFinite(heightCm) || heightCm < 100 || heightCm > 230) return 'Height must be between 100 and 230 cm.';
-  if (!ethnicity) return 'Please pick an ethnicity, it affects the reference values.';
   return null;
 }
 
@@ -235,7 +234,7 @@ export default function ProfileSetupView({ initial, onProfileSaved }) {
     e.preventDefault();
     const ageYears = Number(age);
     const heightCm = Number(height);
-    const problem = validate({ ageYears, sex, heightCm, ethnicity });
+    const problem = validate({ ageYears, sex, heightCm });
     if (problem) {
       setError(problem);
       return;
@@ -267,8 +266,8 @@ export default function ProfileSetupView({ initial, onProfileSaved }) {
         <span className="ob-eyebrow">Before we listen</span>
         <h2 className="ob-title">Tell us about you.</h2>
         <p className="ob-lead">
-          We use age, sex, height and ethnicity to calibrate expected lung values against the Hankinson
-          NHANES III reference. <span className="tag">No audio leaves your phone.</span>
+          Age, sex and height help scale your breath reading. Ethnicity is optional.{' '}
+          <span className="tag">No audio leaves your phone.</span>
         </p>
       </div>
 
@@ -330,15 +329,14 @@ export default function ProfileSetupView({ initial, onProfileSaved }) {
         </div>
 
         <div className="ob-field ob-field-full">
-          <label className="ob-label" htmlFor="ob-ethnicity"><span>Ethnicity</span></label>
+          <label className="ob-label" htmlFor="ob-ethnicity"><span>Ethnicity</span><span className="opt">Optional</span></label>
           <select
             id="ob-ethnicity"
             className="ob-select"
             value={ethnicity}
             onChange={(e) => setEthnicity(e.target.value)}
-            required
           >
-            <option value="">Select one...</option>
+            <option value="">Prefer not to say</option>
             {ETHNICITY_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}

@@ -467,7 +467,7 @@ export default function HeartView({ onBack, onNeuro, onBreath, onComplete, codex
     <div className="hv-stage">
       <div className="hv-head">
         <span className="eyebrow">Module 03 · Heart</span>
-        <h2 className="title">Resting pulse + variability.</h2>
+        <h2 className="title">Resting pulse.</h2>
         <p className="sub">30 seconds of front-camera video, processed on your phone. Results are experimental and not a medical assessment.</p>
       </div>
 
@@ -532,14 +532,6 @@ export default function HeartView({ onBack, onNeuro, onBreath, onComplete, codex
             <div className="hv-result-row">
               <span className="k">Estimated pulse</span>
               <span className="v">{Math.round(classified.hrBpm)} bpm</span>
-            </div>
-            <div className="hv-result-row">
-              <span className="k">Estimated variability · RMSSD</span>
-              <span className="v">{classified.hrvRmssdMs != null ? `${classified.hrvRmssdMs.toFixed(0)} ms` : '-'}</span>
-            </div>
-            <div className="hv-result-row">
-              <span className="k">Estimated variability · SDNN</span>
-              <span className="v">{classified.sdnnMs != null ? `${classified.sdnnMs.toFixed(0)} ms` : '-'}</span>
             </div>
             <div className="hv-result-row">
               <span className="k">Beats detected</span>
