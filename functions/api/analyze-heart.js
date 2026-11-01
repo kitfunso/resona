@@ -1,7 +1,7 @@
 import { json } from '../_lib/http.js';
 import { getAuth } from '../_lib/session.js';
 import { loadCurrentUser, insertCheckIn } from '../_lib/db.js';
-import { buildDemographics, heartReportFallback, scrubReport } from '../_lib/reports.js';
+import { pickReadings, getCodexReport, readAnalysisBody } from '../_lib/demo-analysis.js';
 
 // POST /api/analyze-heart — heart screen (camera rPPG result in the body).
 export async function onRequestPost(context) {
@@ -11,39 +11,23 @@ export async function onRequestPost(context) {
   const user = await loadCurrentUser(env, auth.userId);
   if (!user) return json({ error: 'user not found' }, 404);
 
-  const demographics = buildDemographics(user);
-  if (!demographics.ageYears || !demographics.sex) {
-    return json({ error: 'profile incomplete; PATCH /api/me first' }, 400);
-  }
+  const body = await readAnalysisBody(context.request);
+  const readings = pickReadings('heart', [body?.heart]);
+  if (!readings) return json({ error: 'invalid readings' }, 400);
+  const report = await getCodexReport(env, 'heart', readings);
 
-  const body = await context.request.json().catch(() => ({}));
-  const { heart } = body || {};
-  if (!heart || typeof heart !== 'object') return json({ error: 'missing heart payload' }, 400);
-  if (!Number.isFinite(heart.hrBpm)) return json({ error: 'heart.hrBpm must be a finite number' }, 400);
-
-  if (heart.quality?.grade === 'poor') {
-    return json({
-      ok: false,
-      coaching: {
-        message:
-          'We could not read a clean pulse from your camera. Move into brighter, even light, hold still with your face centred in the oval, and try again.',
-      },
-    });
-  }
-
-  const report = heartReportFallback({ heart });
-  report.source = 'fallback';
-  scrubReport(report);
-
-  try {
-    await insertCheckIn(env, {
-      userId: auth.userId,
-      orgId: user.org_id,
-      kind: 'heart',
-      payload: { heart, heartReport: report },
-    });
-  } catch (err) {
-    console.error('[analyze-heart] persist failed:', err.message);
+  if (report.source === 'codex') {
+    try {
+      await insertCheckIn(env, {
+        userId: auth.userId,
+        orgId: user.org_id,
+        kind: 'heart',
+        payload: { readings, heartReport: report },
+      });
+    } catch (err) {
+      console.error('[analyze-heart] persist failed:', err.message);
+      return json({ error: 'could not save report' }, 503);
+    }
   }
 
   return json({ ok: true, report });

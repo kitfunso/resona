@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { requestMotionPermission, captureMotion } from '../imu/motion.js';
 import { analyseTremor } from '../imu/tremor.js';
 import { analyseGait } from '../imu/gait.js';
@@ -513,11 +513,19 @@ function useCss() {
 
 const PREP_SECONDS = 5;
 
-async function prep(seconds, onTick) {
+async function prep(seconds, onTick, signal) {
   for (let s = seconds; s > 0; s--) {
+    if (signal.aborted) throw new DOMException('Capture stopped', 'AbortError');
     onTick(s);
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((resolve, reject) => {
+      const finish = () => { signal.removeEventListener('abort', abort); resolve(); };
+      const timer = setTimeout(finish, 1000);
+      const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(new DOMException('Capture stopped', 'AbortError')); };
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+    });
   }
+  if (signal.aborted) throw new DOMException('Capture stopped', 'AbortError');
   onTick(0);
 }
 
@@ -679,13 +687,7 @@ function startAudioKeepalive() {
   }
 }
 
-const TREMOR_LABELS = {
-  physiological: 'Expected adult pattern',
-  essential_like: 'Higher-frequency signal',
-  parkinsonian_like: 'Low-frequency signal · see GP',
-};
-
-export default function NeuroView({ onBack, demographics, onHeart }) {
+export default function NeuroView({ onBack, onHeart }) {
   useCss();
   const [stage, setStage] = useState('intro');
   const [progress, setProgress] = useState(0);
@@ -695,28 +697,49 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
   const [error, setError] = useState(null);
   const [report, setReport] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState(null);
   const [flash, setFlash] = useState(null); // 'go' | 'stop' | null
   const [soundDiag, setSoundDiag] = useState(null);
+  const captureRef = useRef(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const stopIfHidden = () => { if (document.hidden) captureRef.current?.abort(); };
+    const stopOnExit = () => captureRef.current?.abort();
+    document.addEventListener('visibilitychange', stopIfHidden);
+    window.addEventListener('pagehide', stopOnExit);
+    return () => {
+      mountedRef.current = false;
+      document.removeEventListener('visibilitychange', stopIfHidden);
+      window.removeEventListener('pagehide', stopOnExit);
+      captureRef.current?.abort();
+    };
+  }, []);
 
   async function fetchReport(currentTremor, currentGait) {
     setReportLoading(true);
     setReport(null);
+    setReportError(null);
     try {
       const data = await analyzeNeuro({
-        tremor: currentTremor,
-        gait: currentGait,
-        demographics: demographics || {},
+        tremor: { dominantFrequencyHz: currentTremor?.dominantFrequencyHz ?? null, sampleRate: currentTremor?.sampleRate ?? null },
+        gait: { stepsDetected: currentGait?.stepsDetected ?? null, cadence: currentGait?.cadence ?? null, stridesCv: currentGait?.stridesCv ?? null, symmetryIndex: currentGait?.symmetryIndex ?? null },
       });
+      if (data.report?.source !== 'codex') throw new Error('Report unavailable');
       setReport(data.report);
-    } catch (e) {
-      console.warn('analyze-neuro failed', e);
+    } catch {
       setReport(null);
+      setReportError('The Codex report is unavailable. Your readings are still shown on this device.');
     } finally {
       setReportLoading(false);
     }
   }
 
-  async function ensurePermissionAndRun(fn) {
+  async function ensurePermissionAndRun(fn, returnStage = 'intro') {
+    captureRef.current?.abort();
+    const controller = new AbortController();
+    captureRef.current = controller;
     setError(null);
     // Unlock the AudioContext within the user-gesture window. Without this,
     // the Neuro-only flow (never touched Breath) has no unlocked audio and
@@ -724,16 +747,25 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
     try { unlockAudio(); } catch { /* optional */ }
     try {
       const state = await requestMotionPermission();
+      if (controller.signal.aborted) throw new DOMException('Capture stopped', 'AbortError');
       if (state !== 'granted') {
         setError('Motion access denied. On iOS, go to Settings > Safari > Motion & Orientation Access and enable it, then reload.');
         setStage('error');
         return;
       }
-      await fn();
+      await fn(controller.signal);
     } catch (e) {
+      if (!mountedRef.current || captureRef.current !== controller) return;
+      if (e.name === 'AbortError') {
+        setError('Motion capture stopped. You can try again.');
+        setStage(returnStage);
+        return;
+      }
       console.error(e);
       setError(e.message || String(e));
       setStage('error');
+    } finally {
+      if (captureRef.current === controller) captureRef.current = null;
     }
   }
 
@@ -748,41 +780,48 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
     await Promise.allSettled([buzz({ kind }), playBackupBeep()]);
   }
 
-  async function runTremor() {
+  async function runTremor(signal) {
+    setGait(null);
+    setReport(null);
+    setReportError(null);
     setStage('tremor_prep');
     setPrepCount(PREP_SECONDS);
     const stopKeepalive = startAudioKeepalive();
-    await prep(PREP_SECONDS, setPrepCount);
-    stopKeepalive();
+    try { await prep(PREP_SECONDS, setPrepCount, signal); } finally { stopKeepalive(); }
     flashCue('go');
     await fireCue('start');
+    if (signal.aborted) throw new DOMException('Capture stopped', 'AbortError');
     setStage('tremor_record');
     setProgress(0);
-    const motion = await captureMotion({ durationMs: 10000, onTick: ({ pct }) => setProgress(pct) });
+    const motion = await captureMotion({ durationMs: 10000, signal, onTick: ({ pct }) => setProgress(pct) });
     flashCue('stop');
     await fireCue('end');
+    if (signal.aborted) throw new DOMException('Capture stopped', 'AbortError');
     const result = analyseTremor(motion);
     setTremor(result);
     setStage('tremor_done');
   }
 
-  async function runGait() {
+  async function runGait(signal) {
+    setGait(null);
+    setReport(null);
+    setReportError(null);
     setStage('gait_prep');
     setPrepCount(PREP_SECONDS);
     const stopKeepalive = startAudioKeepalive();
-    await prep(PREP_SECONDS, setPrepCount);
-    stopKeepalive();
+    try { await prep(PREP_SECONDS, setPrepCount, signal); } finally { stopKeepalive(); }
     flashCue('go');
     await fireCue('start');
+    if (signal.aborted) throw new DOMException('Capture stopped', 'AbortError');
     setStage('gait_record');
     setProgress(0);
-    const motion = await captureMotion({ durationMs: 10000, onTick: ({ pct }) => setProgress(pct) });
+    const motion = await captureMotion({ durationMs: 10000, signal, onTick: ({ pct }) => setProgress(pct) });
     flashCue('stop');
     await fireCue('end');
+    if (signal.aborted) throw new DOMException('Capture stopped', 'AbortError');
     const result = analyseGait(motion);
     setGait(result);
     setStage('gait_done');
-    fetchReport(tremor, result);
   }
 
   const remaining = Math.max(0, Math.ceil((1 - progress) * 10));
@@ -799,7 +838,7 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
       <div className="nv-head">
         <span className="eyebrow">Module 02 · Neuro</span>
         <h2 className="title">Two short tests.</h2>
-        <p className="sub">Stillness plus gait, ten seconds each. Screening only, not diagnostic.</p>
+        <p className="sub">Stillness plus gait, ten seconds each. Experimental readings, not a medical assessment.</p>
       </div>
 
       {/* Test 1: Stillness */}
@@ -896,10 +935,6 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
               <span className="k">Sample rate</span>
               <span className="v">{tremor.sampleRate} Hz</span>
             </div>
-            <span className="nv-band" data-k={tremor.classification}>
-              <span className="dot" />
-              {TREMOR_LABELS[tremor.classification] || tremor.classification}
-            </span>
             {(stage === 'tremor_done' || gaitState !== 'idle') && (
               <button
                 className="nv-btn-ghost"
@@ -932,7 +967,7 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
           </p>
 
           {stage === 'tremor_done' && (
-            <button className="nv-btn" onClick={() => ensurePermissionAndRun(runGait)}>
+            <button className="nv-btn" onClick={() => ensurePermissionAndRun(runGait, 'tremor_done')}>
               <span>Start walk test</span>
               <span className="arrow">→</span>
             </button>
@@ -975,7 +1010,7 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
                 <span className="v">{gait.symmetryIndex != null ? gait.symmetryIndex.toFixed(2) : '-'}</span>
               </div>
               {stage === 'gait_done' && (
-                <button className="nv-btn-ghost" onClick={() => ensurePermissionAndRun(runGait)}>
+                <button className="nv-btn-ghost" onClick={() => ensurePermissionAndRun(runGait, 'tremor_done')}>
                   Redo walk test
                 </button>
               )}
@@ -985,6 +1020,15 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
       )}
 
       {/* Neuro report */}
+      {stage === 'gait_done' && !reportLoading && !report && (
+        <div className="nv-report">
+          <p className="interp">A Codex report is currently unavailable. When available, choosing it sends numerical readings to our server and OpenAI. A successful report and its readings are saved with your account; an unavailable report is not saved. Raw motion stays on your phone. Agent session data is retained until deletion; OpenAI may retain monitoring logs. Readings can still be personal information.</p>
+          <button className="nv-btn" disabled onClick={() => fetchReport(tremor, gait)}>
+            <span>Codex report unavailable</span><span className="arrow">→</span>
+          </button>
+          {reportError && <p className="nv-error" role="alert">{reportError}</p>}
+        </div>
+      )}
       {stage === 'gait_done' && reportLoading && (
         <div className="nv-report">
           <div className="nv-analyzing">
@@ -992,7 +1036,7 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
               <span /><span /><span /><span /><span /><span /><span />
             </div>
             <div className="nv-analyzing-label">Reading your motion trace...</div>
-            <div className="nv-analyzing-sub">GLM 5.1 is interpreting the signals</div>
+            <div className="nv-analyzing-sub">Codex is preparing your report</div>
           </div>
         </div>
       )}
@@ -1012,12 +1056,12 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
                   borderRadius: 999,
                   letterSpacing: '0.12em',
                   textTransform: 'uppercase',
-                  background: report.source === 'ai' ? 'rgba(231, 184, 126, 0.12)' : 'rgba(209, 133, 137, 0.08)',
-                  color: report.source === 'ai' ? 'var(--brass-bright)' : 'var(--warn)',
-                  border: report.source === 'ai' ? '1px solid var(--brass-line)' : '1px solid rgba(209, 133, 137, 0.2)',
+                  background: report.source === 'codex' ? 'rgba(231, 184, 126, 0.12)' : 'rgba(209, 133, 137, 0.08)',
+                  color: report.source === 'codex' ? 'var(--brass-bright)' : 'var(--warn)',
+                  border: report.source === 'codex' ? '1px solid var(--brass-line)' : '1px solid rgba(209, 133, 137, 0.2)',
                 }}
               >
-                {report.source === 'ai' ? '● GLM 5.1' : '○ template'}
+                {report.source === 'codex' ? '● Codex' : '○ template'}
               </span>
             )}
           </div>
@@ -1039,23 +1083,13 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
               </ul>
             </>
           )}
-          {report.whenToWorry && (
-            <div className="nv-worry">
-              <span className="icon">§</span>
-              <div>
-                <span className="lab">When to see a GP</span>
-                <span>{report.whenToWorry}</span>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
-      {stage === 'error' && <div className="nv-error">{error}</div>}
+      {error && <div className="nv-error" role="alert">{error}</div>}
 
       <div className="nv-caveat">
-        Screening only. Do not treat any result as a medical diagnosis. A physiological (&gt;11 Hz)
-        band is the expected healthy adult pattern.
+        Motion readings are experimental and depend on your phone and how you hold it. They are not a medical assessment.
       </div>
 
       {onHeart && stage === 'gait_done' && (
@@ -1065,7 +1099,7 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
         </button>
       )}
       {onBack && (
-        <button className="nv-btn-ghost" onClick={onBack}>Back to your reading</button>
+        <button className="nv-btn-ghost" onClick={() => { captureRef.current?.abort(); onBack(); }}>Back to your reading</button>
       )}
     </div>
   );

@@ -1,10 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { unlockAudio, acquireMicPermission, recordBlow } from '../audio/recorder.js';
 import { extractFeatures } from '../audio/features.js';
-import { estimateSpirometry } from '../audio/regression.js';
 import { analyzeBlow } from '../api.js';
-import ProfileSetupView from './ProfileSetupView.jsx';
-import ResultsView, { CoachingCard } from './ResultsView.jsx';
+import ResultsView from './ResultsView.jsx';
 import NeuroView from './NeuroView.jsx';
 import HeartView from './HeartView.jsx';
 import HistoryView from './HistoryView.jsx';
@@ -458,56 +456,14 @@ function useCss() {
   }
 }
 
-// Last-resort client-side fallback when the server can't be reached at all
-// (network down, ngrok dropped, fetch timed out). Mirrors the shape of the
-// server response so ResultsView renders normally. User still gets numbers +
-// a plain-English report, just from a local template rather than the LLM.
-function buildLocalFallback(estimate, demographics, err) {
-  const pp = Math.round(estimate.percentPredicted.fev1);
-  const below = pp < 80;
-  const above = pp > 115;
-  const headline = below
-    ? 'Your FEV1 came in lower than expected.'
-    : above
-    ? 'Your FEV1 came in above the expected range.'
-    : 'Your FEV1 is roughly in line with expectations.';
-  const interpretation =
-    `You pushed out ${estimate.fev1.toFixed(2)} L in the first second, ${estimate.fvc.toFixed(2)} L in total, ` +
-    `with a peak flow of ${estimate.pef.toFixed(2)} L/s. That is ${pp}% of the expected value for someone your ` +
-    `age, sex, and height.`;
-  const actions = below
-    ? [
-        { title: 'Book a GP appointment', detail: 'Mention these numbers and ask about formal spirometry.' },
-        { title: 'Skip smoking and vaping', detail: 'These are the fastest way to push FEV1 down further.' },
-        { title: 'Track any new symptoms', detail: 'Note morning cough, wheeze, or breathlessness for your GP.' },
-      ]
-    : above
-    ? [
-        { title: 'Keep doing what you are doing', detail: 'Regular cardio and healthy weight keep you here.' },
-        { title: 'Do not start smoking', detail: 'That is the quickest way to lose this margin within a few years.' },
-        { title: 'Treat this as a screening', detail: 'Real clinical spirometry may read 10 to 15% lower.' },
-      ]
-    : [
-        { title: 'Get 150 minutes of cardio a week', detail: 'Brisk walking, cycling, swimming keep lung capacity up.' },
-        { title: 'Avoid smoking and vaping', detail: 'Even a few years of smoking shifts FEV1 trajectory.' },
-        { title: 'Re-check once a year', detail: 'An annual screen helps spot trends early.' },
-      ];
-  const personalReport = {
-    headline,
-    interpretation,
-    actions,
-    whenToWorry: below
-      ? 'See a GP if you develop new shortness of breath, chest tightness, a persistent cough, or wheezing.'
-      : 'See a GP if you notice sudden shortness of breath or a cough that lasts more than three weeks.',
-    source: 'fallback',
-  };
-
+function buildLocalFallback() {
   return {
-    valid: true,
-    atsFlags: [],
-    personalReport,
-    offline: true,
-    reason: err?.message || 'network',
+    personalReport: {
+      headline: 'Your recording is ready.',
+      interpretation: 'The AI report is unavailable. These numbers describe the sound captured by this phone; they do not assess your health.',
+      actions: [{ title: 'Try again in a quiet place', detail: 'Background sound and phone position can change the recording.' }],
+      source: 'fallback',
+    },
   };
 }
 
@@ -549,54 +505,67 @@ function InstrumentTickRing() {
   );
 }
 
-// Derive a demographics object from the stored user profile.
-function demographicsFromUser(user) {
-  const ageYears = user.dob
-    ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
-    : null;
-  return {
-    ageYears,
-    heightCm: user.height_cm,
-    sex: user.sex,
-    ethnicity: user.ethnicity,
-  };
-}
-
-export default function ParticipantView({ user, onSignOut }) {
+export default function ParticipantView({ onSignOut }) {
   useCss();
-  const [currentUser, setCurrentUser] = useState(user);
   const [stage, setStage] = useState('blow');
   const [countdown, setCountdown] = useState(0);
   const [level, setLevel] = useState(0);
   const [estimate, setEstimate] = useState(null);
   const [analysis, setAnalysis] = useState(null);
-  const [coachingMessage, setCoachingMessage] = useState(null);
   const [error, setError] = useState(null);
+  const [arming, setArming] = useState(false);
+  const captureRef = useRef(null);
 
-  const profileComplete = !!(currentUser?.dob && currentUser?.height_cm && currentUser?.sex && currentUser?.ethnicity);
-  if (!profileComplete) {
-    return <ProfileSetupView initial={currentUser} onProfileSaved={setCurrentUser} />;
+  useEffect(() => {
+    function stopHiddenCapture() {
+      if (!captureRef.current) return;
+      captureRef.current.abort();
+      captureRef.current = null;
+      setError('Recording stopped when the page was hidden. Please try again.');
+      setStage('error');
+    }
+    function onVisibilityChange() { if (document.hidden) stopHiddenCapture(); }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', stopHiddenCapture);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', stopHiddenCapture);
+      captureRef.current?.abort();
+      captureRef.current = null;
+    };
+  }, []);
+
+  function cancelCapture() {
+    captureRef.current?.abort();
+    captureRef.current = null;
   }
-
-  const demographics = demographicsFromUser(currentUser);
 
   async function handleArm() {
     setError(null);
     setEstimate(null);
     setAnalysis(null);
-    setCoachingMessage(null);
     setLevel(0);
+    const controller = new AbortController();
+    captureRef.current = controller;
+    setArming(true);
     try {
       unlockAudio();
-      await acquireMicPermission();
+      await acquireMicPermission({ signal: controller.signal });
+      if (controller.signal.aborted) return;
       setStage('armed');
     } catch (permErr) {
+      if (permErr?.name === 'AbortError') return;
       setError('Microphone permission is required. Please allow mic access and try again.');
       setStage('error');
+    } finally {
+      if (captureRef.current === controller) captureRef.current = null;
+      setArming(false);
     }
   }
 
   async function handleBlow() {
+    const controller = new AbortController();
+    captureRef.current = controller;
     try {
       // Permission already granted in handleArm; this tap is the user's
       // deliberate "go" signal so recording starts on their cue, not on
@@ -611,51 +580,51 @@ export default function ParticipantView({ user, onSignOut }) {
           setCountdown(remaining);
         },
         onLevel: setLevel,
+        signal: controller.signal,
       });
+      if (controller.signal.aborted) return;
 
       setStage('analyzing');
       setCountdown(0);
 
       const features = extractFeatures(pcm, sampleRate);
-      const localEstimate = estimateSpirometry({ features, demographics });
-      setEstimate(localEstimate);
-
-      let apiResult;
-      try {
-        apiResult = await analyzeBlow({
-          features,
-          estimate: localEstimate,
-          demographics,
-        });
-      } catch (apiErr) {
-        console.error('analyze-blow failed, using client-side fallback', apiErr);
-        apiResult = buildLocalFallback(localEstimate, demographics, apiErr);
-      }
-
-      if (apiResult.valid === false) {
-        setCoachingMessage(apiResult.coachingMessage);
-        setStage('coaching');
-        return;
-      }
-
-      setAnalysis(apiResult);
+      setEstimate({
+        rmsEnergy: features.rmsEnergy,
+        activeSec10: features.peakEnv > 0.0001 ? features.activeSec10 : null,
+        peakEnv: features.peakEnv,
+      });
       setStage('results');
     } catch (e) {
+      if (e?.name === 'AbortError') return;
       console.error(e);
       setError(e.message || String(e));
       setStage('error');
+    } finally {
+      if (captureRef.current === controller) captureRef.current = null;
     }
+  }
+
+  async function handleAnalysis() {
+    setStage('analyzing');
+    try {
+      const result = await analyzeBlow({ features: estimate });
+      if (result?.personalReport?.source !== 'codex') throw new Error('Codex report unavailable');
+      setAnalysis(result);
+    } catch (err) {
+      console.error('Breath report unavailable', { name: err?.name });
+      setAnalysis(buildLocalFallback());
+    } finally { setStage('results'); }
   }
 
   function resetToBlow() {
     setEstimate(null);
     setAnalysis(null);
-    setCoachingMessage(null);
     setError(null);
     setStage('blow');
   }
 
   async function handleSignOut() {
+    cancelCapture();
     try {
       await logout();
     } finally {
@@ -665,7 +634,7 @@ export default function ParticipantView({ user, onSignOut }) {
 
   const recording = stage === 'recording';
   const armed = stage === 'armed';
-  const disabled = stage === 'recording' || stage === 'analyzing';
+  const disabled = arming || stage === 'recording' || stage === 'analyzing';
   const platform = detectPlatform();
   // Desktop users have no single mic position worth pointing at, they use a
   // laptop lid or external mic. Hide the arrow there to avoid misleading cue.
@@ -679,13 +648,13 @@ export default function ParticipantView({ user, onSignOut }) {
             <span className="paren">/</span>not-a-doctor<span className="paren">/</span>
           </span>
         </div>
-        <div className="r-chrome-disclaimer">Screening tool<br />not a diagnosis</div>
+        <div className="r-chrome-disclaimer">Experimental demo<br />not a medical assessment</div>
         <div className="r-chrome-actions">
           {stage !== 'history' && (
             <button
               type="button"
               className="r-chrome-link"
-              onClick={() => setStage('history')}
+              onClick={() => { cancelCapture(); setStage('history'); }}
             >
               History
             </button>
@@ -739,9 +708,8 @@ export default function ParticipantView({ user, onSignOut }) {
           </div>
 
           <p className="r-hint">
-            Stand up. Take the deepest breath you can. Hold the bottom of the phone close to your
-            mouth. Blow <strong>hard</strong> and <strong>steady</strong> for as long as you can. The
-            longer you sustain strong flow, the stronger your reading.
+            Hold the bottom of your phone near your mouth and breathe out comfortably. Stop if you
+            feel unwell. Your recording stays on your phone.
           </p>
 
           {recording && (
@@ -757,7 +725,7 @@ export default function ParticipantView({ user, onSignOut }) {
                   <span className="dot" />
                   {level > 0.03 ? 'Signal acquired' : 'Awaiting breath'}
                 </span>
-                <span>{(level * 100).toFixed(0).padStart(2, '0')} dBFS</span>
+                <span>{(level * 100).toFixed(0).padStart(2, '0')} / 100</span>
               </div>
             </div>
           )}
@@ -770,22 +738,15 @@ export default function ParticipantView({ user, onSignOut }) {
             <span /><span /><span /><span /><span /><span /><span />
           </div>
           <div className="r-analyzing-label">Listening to your rhythm...</div>
-          <div className="r-analyzing-sub">GLM 5.1 is reading the waveform</div>
+          <div className="r-analyzing-sub">Preparing your recording or report</div>
         </div>
-      )}
-
-      {stage === 'coaching' && (
-        <CoachingCard
-          message={coachingMessage}
-          onRetry={resetToBlow}
-          onStartOver={resetToBlow}
-        />
       )}
 
       {stage === 'results' && estimate && (
         <ResultsView
           estimate={estimate}
           analysis={analysis}
+          onAnalyze={handleAnalysis}
           onRetry={resetToBlow}
           onStartOver={resetToBlow}
           onNeuro={() => setStage('neuro')}
@@ -796,7 +757,6 @@ export default function ParticipantView({ user, onSignOut }) {
 
       {stage === 'neuro' && (
         <NeuroView
-          demographics={demographics}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
           onHeart={() => setStage('heart')}
         />
@@ -804,7 +764,6 @@ export default function ParticipantView({ user, onSignOut }) {
 
       {stage === 'heart' && (
         <HeartView
-          demographics={demographics}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
         />
       )}

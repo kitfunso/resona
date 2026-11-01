@@ -31,11 +31,10 @@ export async function onRequestGet(context) {
       let headline = null;
       try {
         const p = JSON.parse(row.payload);
-        headline =
-          row.kind === 'breath' ? p?.personalReport?.headline ?? null
-          : row.kind === 'motion' ? p?.neuroReport?.headline ?? null
-          : row.kind === 'heart' ? p?.heartReport?.headline ?? null
-          : null;
+        const report = row.kind === 'breath' ? p?.personalReport
+          : row.kind === 'motion' ? p?.neuroReport
+          : row.kind === 'heart' ? p?.heartReport : null;
+        headline = report?.source === 'codex' ? report.headline ?? null : null;
       } catch {}
       return { id: row.id, kind: row.kind, createdAt: row.created_at, headline };
     });

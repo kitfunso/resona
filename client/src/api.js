@@ -1,82 +1,46 @@
-// Tiny fetch wrapper with 1 retry on network errors.
-// The server-side endpoint handles GLM retries; this handles
-// the client → server hop.
-
-async function postJson(path, body, { retries = 1, timeoutMs = 35000 } = {}) {
-  let lastErr = null;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(path, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
-      }
-      return await res.json();
-    } catch (err) {
-      clearTimeout(timer);
-      lastErr = err;
-      if (err.name === 'AbortError') {
-        // timeout, retry if we have budget
-        if (attempt < retries) continue;
-        throw new Error('Analysis timed out. Try again.');
-      }
-      // Network-level errors: retry once
-      if (attempt < retries && (err.message || '').toLowerCase().includes('fetch')) continue;
-      throw err;
-    }
-  }
-  throw lastErr ?? new Error('postJson failed');
-}
-
-// Stable per-device id, generated once and persisted in localStorage.
-const SESSION_KEY = 'resona:sessionId';
-function newSessionId() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
-  return `ssn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-export function getSessionId() {
-  if (typeof localStorage === 'undefined') return newSessionId();
-  let id = null;
+// Paid requests are not retried because a lost response can still be billed.
+async function postJson(path, body, { timeoutMs = 35000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    id = localStorage.getItem(SESSION_KEY);
-  } catch {}
-  if (!id) {
-    id = newSessionId();
-    try { localStorage.setItem(SESSION_KEY, id); } catch {}
+    const res = await fetch(path, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+    }
+    return await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Analysis timed out. Try again.');
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return id;
 }
 
-export function analyzeBlow({ features, estimate, demographics }) {
-  return postJson('/api/analyze-blow', {
-    features,
-    estimate,
-    demographics,
-    sessionId: getSessionId(),
+function numbers(source, keys) {
+  if (!source) return null;
+  return Object.fromEntries(keys.filter((key) => Number.isFinite(source[key])).map((key) => [key, source[key]]));
+}
+
+export function analyzeBlow({ features }) {
+  return postJson('/api/analyze-blow', { features: numbers(features, ['rmsEnergy', 'activeSec10', 'peakEnv']) });
+}
+
+export function analyzeHeart({ heart }) {
+  return postJson('/api/analyze-heart', { heart: numbers(heart, ['hrBpm', 'hrvRmssdMs', 'sdnnMs', 'beatCount', 'durationSec']) });
+}
+
+export function analyzeNeuro({ tremor, gait }) {
+  return postJson('/api/analyze-neuro', {
+    tremor: numbers(tremor, ['dominantFrequencyHz', 'sampleRate']),
+    gait: numbers(gait, ['stepsDetected', 'cadence', 'stridesCv', 'symmetryIndex']),
   });
-}
-
-export function analyzeHeart({ heart, demographics }) {
-  return postJson('/api/analyze-heart', {
-    heart,
-    demographics,
-    sessionId: getSessionId(),
-  });
-}
-
-// analyze-neuro takes no sessionId (the server does not record one for motion);
-// routing it through postJson gives it the same retry + timeout as blow/heart.
-export function analyzeNeuro({ tremor, gait, demographics }) {
-  return postJson('/api/analyze-neuro', { tremor, gait, demographics });
 }
 
 // GET helper. Throws an Error tagged with `.kind` ('auth-expired' | 'network')

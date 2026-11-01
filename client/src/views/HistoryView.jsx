@@ -449,9 +449,8 @@ export default function HistoryView({ onBack, onBreath, onHeart }) {
         <div className="hsv-empty">
           <h1 className="hsv-empty-title">Your history starts here.</h1>
           <p className="hsv-empty-body">
-            Every Breath, Motion, and Heart check-in you complete will be listed on this page, just for you.
-            Nobody else can see this list, including your employer. The only aggregate they see is the team-level
-            summary described in our privacy policy.
+            Saved Breath, Motion, and Heart reports will appear here. Recordings without a saved report remain on your device.
+            This list is tied to your account; earlier report text may be unavailable.
           </p>
           <p className="hsv-empty-tail">Take your first reading to start the record.</p>
           <div className="hsv-empty-actions">

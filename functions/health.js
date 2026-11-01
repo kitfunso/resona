@@ -9,7 +9,8 @@ export function onRequestGet(context) {
     modules: ['Breath', 'Neuro', 'Heart'],
     tagline: 'Every body has a rhythm.',
     db: 'd1',
-    demo: context.env.DEMO_MODE === 'true',
+    demo: context.env.DEMO_MODE === 'true' && /^[A-Za-z0-9_-]{32,128}$/.test(context.env.DEMO_ACCESS_TOKEN || '')
+      && typeof context.env.SESSION_SECRET === 'string' && context.env.SESSION_SECRET.length >= 32,
     uptime_s: 0,
   });
 }

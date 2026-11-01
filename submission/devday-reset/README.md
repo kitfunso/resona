@@ -1,6 +1,8 @@
-# Resona: DevDay sensor demo
+# Earlier Resona DevDay experiments
 
-The current hackathon entry uses a phone's microphone and motion sensor for a short check-in. Record a comfortable breath sound, walk for ten seconds, and see sound-level and approximate movement readings. The numbers describe this recording, depend on the device and surroundings, and are not validated health measurements or a medical assessment.
+The current entry continues the original Resona app. See the [main README](../../README.md), [slides](../Resona-DevDay.pptx) and [demo script](../Resona-DevDay-script.md). The standalone sensor and Reset experiments below are earlier work, not the current entry.
+
+The earlier sensor experiment uses a phone's microphone and motion sensor for a short check-in. Record a comfortable breath sound, walk for ten seconds, and see sound-level and approximate movement readings. The numbers describe this recording, depend on the device and surroundings, and are not validated health measurements or a medical assessment.
 
 Raw audio and motion samples are processed on the device. A participant can choose to send the extracted numerical readings to the demo server and OpenAI for a note selected from fixed, non-medical options. Those readings can still be personal information. The optional note needs a configured server and private demo link; the readings remain visible if the service is unavailable.
 

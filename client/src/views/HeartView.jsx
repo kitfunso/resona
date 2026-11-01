@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { acquireCameraPermission, detectFirstFrameRoi, buildFallbackRois, captureRppg } from '../video/recorder.js';
 import { extractHeartFeatures } from '../video/features.js';
-import { classifyHeart } from '../video/regression.js';
 import { analyzeHeart } from '../api.js';
 import { CoachingCard } from './ResultsView.jsx';
 
@@ -289,7 +288,7 @@ async function prep(seconds, onTick) {
   onTick(0);
 }
 
-export default function HeartView({ onBack, demographics }) {
+export default function HeartView({ onBack }) {
   useCss();
   const [stage, setStage] = useState('intro');
   const [prepCount, setPrepCount] = useState(PREP_SECONDS);
@@ -298,6 +297,8 @@ export default function HeartView({ onBack, demographics }) {
   const [faceRetries, setFaceRetries] = useState(0);
   const [classified, setClassified] = useState(null);
   const [report, setReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState(null);
   const [coachingMessage, setCoachingMessage] = useState(null);
   const [error, setError] = useState(null);
   const videoRef = useRef(null);
@@ -305,23 +306,30 @@ export default function HeartView({ onBack, demographics }) {
   const abortRef = useRef(null);
   const mountedRef = useRef(true);
 
-  useEffect(() => () => {
-    mountedRef.current = false;
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
   }, []);
 
-  async function startStream() {
+  async function startStream(signal) {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
       audio: false,
     });
+    if (signal.aborted || !mountedRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     streamRef.current = stream;
     if (videoRef.current) {
       videoRef.current.srcObject = stream;
@@ -345,6 +353,7 @@ export default function HeartView({ onBack, demographics }) {
     setError(null);
     setClassified(null);
     setReport(null);
+    setReportError(null);
     setCoachingMessage(null);
     setFaceRetries(initialAttempt);
     setStage('prep');
@@ -353,7 +362,7 @@ export default function HeartView({ onBack, demographics }) {
     try {
       await acquireCameraPermission();
       if (signal.aborted) return;
-      await startStream();
+      await startStream(signal);
       if (signal.aborted) return;
       await prep(PREP_SECONDS, setPrepCount);
       if (signal.aborted) return;
@@ -394,18 +403,18 @@ export default function HeartView({ onBack, demographics }) {
         if (features.grade === 'good') features.grade = 'fair';
         else if (features.grade === 'fair') features.grade = 'poor';
       }
-      const classifiedResult = classifyHeart({ features, demographics: demographics || {} });
+      const classifiedResult = {
+        hrBpm: features.hrBpm, hrvRmssdMs: features.hrvRmssdMs, sdnnMs: features.sdnnMs,
+        beatCount: features.beatCount, durationSec: features.durationSec,
+        quality: { grade: features.grade, reasons: features.reasons },
+      };
       if (!mountedRef.current || signal.aborted) return;
       setClassified(classifiedResult);
-
-      const apiResult = await analyzeHeart({ heart: classifiedResult, demographics: demographics || {} });
-      if (!mountedRef.current || signal.aborted) return;
-      if (apiResult.ok === false) {
-        setCoachingMessage(apiResult.coaching?.message || 'Try again in better light.');
+      if (features.grade === 'poor' || !Number.isFinite(features.hrBpm)) {
+        setCoachingMessage('The camera could not produce a clear reading. Try again in brighter, even light and hold still.');
         setStage('coaching');
         return;
       }
-      setReport(apiResult.report);
       setStage('result');
     } catch (e) {
       if (e?.name === 'AbortError' || signal.aborted) return;
@@ -417,12 +426,26 @@ export default function HeartView({ onBack, demographics }) {
     }
   }
 
+  async function fetchReport() {
+    setReportLoading(true);
+    setReportError(null);
+    try {
+      const result = await analyzeHeart({ heart: classified });
+      if (result.report?.source !== 'codex') throw new Error('Report unavailable');
+      if (mountedRef.current) setReport(result.report);
+    } catch {
+      if (mountedRef.current) setReportError('The Codex report is unavailable. Your readings are still shown on this device.');
+    } finally {
+      if (mountedRef.current) setReportLoading(false);
+    }
+  }
+
   return (
     <div className="hv-stage">
       <div className="hv-head">
         <span className="eyebrow">Module 03 · Heart</span>
         <h2 className="title">Resting pulse + variability.</h2>
-        <p className="sub">30 seconds of front-camera video. We only keep the RGB averages, never the frames.</p>
+        <p className="sub">30 seconds of front-camera video, processed on your phone. Results are experimental and not a medical assessment.</p>
       </div>
 
       {stage === 'intro' && (
@@ -483,15 +506,15 @@ export default function HeartView({ onBack, demographics }) {
         <>
           <section className="hv-step" data-state="done">
             <div className="hv-result-row">
-              <span className="k">Resting heart rate</span>
+              <span className="k">Estimated pulse</span>
               <span className="v">{Math.round(classified.hrBpm)} bpm</span>
             </div>
             <div className="hv-result-row">
-              <span className="k">HRV · RMSSD</span>
+              <span className="k">Estimated variability · RMSSD</span>
               <span className="v">{classified.hrvRmssdMs != null ? `${classified.hrvRmssdMs.toFixed(0)} ms` : '-'}</span>
             </div>
             <div className="hv-result-row">
-              <span className="k">HRV · SDNN</span>
+              <span className="k">Estimated variability · SDNN</span>
               <span className="v">{classified.sdnnMs != null ? `${classified.sdnnMs.toFixed(0)} ms` : '-'}</span>
             </div>
             <div className="hv-result-row">
@@ -499,20 +522,25 @@ export default function HeartView({ onBack, demographics }) {
               <span className="v">{classified.beatCount}</span>
             </div>
             <div style={{ display: 'flex', gap: 'var(--s-2)', flexWrap: 'wrap', marginTop: 'var(--s-2)' }}>
-              <span className="hv-chip" data-k={classified.hrClassification}>
-                {classified.hrClassification === 'normal' ? 'Within typical range'
-                  : classified.hrClassification === 'tachycardia' ? 'Above typical range'
-                  : classified.hrClassification === 'bradycardia' ? 'Below typical range'
-                  : 'Reading'}
-              </span>
               {classified.quality?.reasons?.includes('fallback_roi') && (
                 <span className="hv-chip" data-k="fallback">Read wider patch</span>
               )}
             </div>
           </section>
 
+          {!report && (
+            <div className="hv-report">
+              <p className="interp">A Codex report is currently unavailable. When available, choosing it sends numerical readings to our server and OpenAI. A successful report and its readings are saved with your account; an unavailable report is not saved. Raw video stays on your phone. Agent session data is retained until deletion; OpenAI may retain monitoring logs. Readings can still be personal information.</p>
+              <button className="hv-btn" disabled onClick={fetchReport}>
+                <span>Codex report unavailable</span><span aria-hidden="true">→</span>
+              </button>
+              {reportError && <p className="hv-error" role="alert">{reportError}</p>}
+            </div>
+          )}
+
           {report && (
             <div className="hv-report">
+              <p className="hv-step-desc">Codex report</p>
               <p className="headline">{report.headline}</p>
               {report.interpretation && <p className="interp">{report.interpretation}</p>}
               {Array.isArray(report.actions) && (
@@ -527,9 +555,6 @@ export default function HeartView({ onBack, demographics }) {
                     </li>
                   ))}
                 </ul>
-              )}
-              {report.whenToWorry && (
-                <div className="hv-worry"><strong>When to see a GP. </strong>{report.whenToWorry}</div>
               )}
             </div>
           )}

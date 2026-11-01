@@ -1,0 +1,11 @@
+name = "resona-devday-original-2026"
+pages_build_output_dir = "client/dist"
+compatibility_date = "2024-11-01"
+
+[vars]
+DEMO_MODE = "true"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "resona-devday-original-2026"
+database_id = "22a55075-506e-4da3-a36e-372238bd5d37"

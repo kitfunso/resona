@@ -35,6 +35,25 @@ const css = `
     padding-bottom: var(--s-3);
     border-bottom: 1px solid var(--hairline);
   }
+  .lv-rhythm {
+    width: 100%; height: 3.25rem;
+    margin: var(--s-2) 0 var(--s-1);
+    overflow: visible;
+  }
+  .lv-rhythm .baseline { stroke: var(--brass-line); stroke-width: 1; }
+  .lv-rhythm .trace {
+    fill: none; stroke: var(--brass); stroke-width: 1.4;
+    stroke-linecap: round; stroke-linejoin: round;
+    animation: lv-rhythm-glow 3.5s ease-in-out infinite;
+  }
+  @keyframes lv-rhythm-glow { 0%, 100% { opacity: 0.48; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .lv-rhythm .trace { animation: none; } }
+  .lv-tagline {
+    margin: 0 0 var(--s-2);
+    color: var(--bone-2);
+    font-family: var(--font-display);
+    font-size: var(--t-small);
+  }
   .lv-eyebrow {
     font-size: 0.7rem;
     font-weight: 700;
@@ -113,6 +132,11 @@ const css = `
     opacity: 0.5;
     cursor: not-allowed;
   }
+  .login-view button:focus-visible {
+    outline: 2px solid var(--brass-bright);
+    outline-offset: 3px;
+  }
+  .login-view button:not(:disabled):hover { border-color: var(--brass); }
 
   .login-view .lv-sent {
     margin: 0;
@@ -171,7 +195,7 @@ export default function LoginView({ onSignedIn }) {
       await startGuestSession();
       onSignedIn();
     } catch (err) {
-      setError('Could not start the demo. Try again in a moment.');
+      setError(err.message || 'Could not start the demo. Try again in a moment.');
     } finally { setBusy(false); }
   }
 
@@ -205,8 +229,12 @@ export default function LoginView({ onSignedIn }) {
         <div className="lv-head">
           <span className="lv-eyebrow">Resona</span>
           <h1 className="lv-title">Sign in</h1>
+          <svg className="lv-rhythm" viewBox="0 0 300 52" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+            <path className="baseline" d="M0 26H300" />
+            <path className="trace" d="M0 26H34C42 26 43 20 50 20S58 33 66 33 74 14 83 14 93 39 102 39 112 7 122 7 133 45 144 45 155 11 166 11 177 37 187 37 197 18 206 18 214 31 222 31 230 23 237 23 244 26 251 26H300" />
+          </svg>
+          <p className="lv-tagline">Every body has a rhythm.</p>
         </div>
-        <a href="/reset.html" style={{ color: 'var(--brass)', minHeight: 44, display: 'flex', alignItems: 'center' }}>Take a private reset</a>
         {stage === 'email' && (
           <>
             <form onSubmit={submitEmail}>

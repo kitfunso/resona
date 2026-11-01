@@ -1,20 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeBlow, analyzeHeart, analyzeNeuro, getCheckIns, getSessionId } from '../api.js';
+import { analyzeBlow, analyzeHeart, analyzeNeuro, getCheckIns } from '../api.js';
 
 // Privacy + behaviour tests for the API client (audit TEST-3). The headline
 // guarantee is the privacy boundary: only extracted NUMERIC features ever leave
 // the browser. These assert the request bodies carry exactly the allowed keys
 // and no raw-capture payload, using a mocked fetch (no DOM, no network).
-
-// api.js touches localStorage (session id) + global fetch in node.
-globalThis.localStorage = (() => {
-  const m = new Map();
-  return {
-    getItem: (k) => (m.has(k) ? m.get(k) : null),
-    setItem: (k, v) => m.set(k, String(v)),
-  };
-})();
 
 function captureFetch(captured, { ok = true, status = 200 } = {}) {
   globalThis.fetch = async (path, opts) => {
@@ -25,8 +16,8 @@ function captureFetch(captured, { ok = true, status = 200 } = {}) {
   };
 }
 
-const ALLOWED_BLOW = new Set(['features', 'estimate', 'demographics', 'sessionId']);
-const ALLOWED_HEART = new Set(['heart', 'demographics', 'sessionId']);
+const ALLOWED_BLOW = new Set(['features']);
+const ALLOWED_HEART = new Set(['heart']);
 // Keys that would indicate raw capture data crossing the boundary.
 const RAW_KEYS = ['audio', 'samples', 'pcm', 'waveform', 'frames', 'rgb', 'video', 'imageData', 'buffer', 'blob'];
 
@@ -44,6 +35,7 @@ test('analyzeBlow sends only the numeric feature payload, no raw capture data', 
   for (const k of Object.keys(cap.body)) {
     assert.ok(ALLOWED_BLOW.has(k), `unexpected top-level key in blow payload: ${k}`);
   }
+  assert.deepEqual(cap.body.features, { peakEnv: 0.5, rmsEnergy: 0.2 });
   const flat = JSON.stringify(cap.body);
   for (const raw of RAW_KEYS) {
     assert.ok(!flat.includes(`"${raw}"`), `raw-capture key leaked across the boundary: ${raw}`);
@@ -65,28 +57,14 @@ test('analyzeHeart sends only the heart feature payload', async () => {
   }
 });
 
-test('every analyze call carries a stable per-device sessionId', async () => {
-  const a = getSessionId();
-  const b = getSessionId();
-  assert.equal(a, b, 'session id is stable across calls');
-  assert.ok(typeof a === 'string' && a.length > 0);
-
-  const cap = {};
-  captureFetch(cap);
-  await analyzeHeart({ heart: { hrBpm: 70 }, demographics: {} });
-  assert.equal(cap.body.sessionId, a, 'request carries the persisted session id');
-});
-
-test('postJson retries once on a network error, then succeeds', async () => {
+test('paid analysis is not retried after a network error', async () => {
   let calls = 0;
   globalThis.fetch = async () => {
     calls += 1;
-    if (calls === 1) throw new Error('fetch failed');
-    return { ok: true, status: 200, json: async () => ({ ok: true }), text: async () => '' };
+    throw new Error('fetch failed');
   };
-  const out = await analyzeHeart({ heart: { hrBpm: 70 }, demographics: {} });
-  assert.equal(calls, 2, 'should retry exactly once');
-  assert.deepEqual(out, { ok: true });
+  await assert.rejects(analyzeHeart({ heart: { hrBpm: 70 }, demographics: {} }), /fetch failed/);
+  assert.equal(calls, 1);
 });
 
 test('postJson surfaces a non-ok HTTP response as an error', async () => {
@@ -102,7 +80,7 @@ test('postJson surfaces a non-ok HTTP response as an error', async () => {
   );
 });
 
-test('analyzeNeuro sends only tremor/gait/demographics, no raw motion stream', async () => {
+test('analyzeNeuro sends only numeric motion features, no raw motion stream', async () => {
   const cap = {};
   captureFetch(cap);
   await analyzeNeuro({
@@ -111,10 +89,11 @@ test('analyzeNeuro sends only tremor/gait/demographics, no raw motion stream', a
     demographics: { ageYears: 30, sex: 'male' },
   });
   assert.equal(cap.path, '/api/analyze-neuro');
-  const ALLOWED_NEURO = new Set(['tremor', 'gait', 'demographics']);
+  const ALLOWED_NEURO = new Set(['tremor', 'gait']);
   for (const k of Object.keys(cap.body)) {
     assert.ok(ALLOWED_NEURO.has(k), `unexpected top-level key in neuro payload: ${k}`);
   }
+  assert.deepEqual(cap.body.tremor, { dominantFrequencyHz: 6.2 });
   const flat = JSON.stringify(cap.body);
   for (const raw of RAW_KEYS) {
     assert.ok(!flat.includes(`"${raw}"`), `raw-capture key leaked across the boundary: ${raw}`);

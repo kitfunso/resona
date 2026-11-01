@@ -106,6 +106,15 @@ test('static routes allow only prepared demo files', async () => {
   }
 });
 
+test('Codex route fails closed without reserving quota or contacting a provider', async () => {
+  const { env, attempts } = fixture();
+  let calls = 0;
+  const result = await handleRequest(new Request('https://example.test/api/codex-analysis', { method: 'POST', body: '{}' }), env, async () => { calls++; });
+  assert.equal(result.status, 503);
+  assert.equal(calls, 0);
+  assert.equal(attempts(), 0);
+});
+
 test('Worker entry point ignores Cloudflare execution context as a provider', async (t) => {
   t.mock.method(globalThis, 'fetch', provider());
   const result = await worker.fetch(request(), fixture().env, { waitUntil() {} });

@@ -103,6 +103,9 @@ export class AnalysisQuota {
 
 export async function handleRequest(request, env, fetchImpl = fetch) {
   const pathname = new URL(request.url).pathname;
+  if (pathname === '/api/codex-analysis') {
+    return json(503, { error: 'Codex analysis is unavailable.' });
+  }
   if (pathname !== '/api/sensor-analysis') {
     if (!['GET', 'HEAD'].includes(request.method)) return json(404, { error: 'Not found.' });
     if (pathname !== '/' && pathname !== '/sensor' && pathname !== '/sensor.html' && !/^\/assets\/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(js|css)$/.test(pathname)) return json(404, { error: 'Not found.' });

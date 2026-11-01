@@ -1,8 +1,23 @@
 # Resona
 
-## DevDay London: Resona sensor demo
+## DevDay London: original Resona
 
-Today's entry is a phone-based check-in built on our earlier Resona project. Record a comfortable breath sound, take a short walk, and see approximate readings from the phone's microphone and motion sensor. These values describe the recording; they are not validated health measurements or a medical assessment.
+The DevDay work continues the original Resona app described below. The updated app is deployed at [resona-devday-original-2026.pages.dev](https://resona-devday-original-2026.pages.dev/); guest sign-in requires the private demo link shared separately. The earlier live app at [resona-dmf.pages.dev](https://resona-dmf.pages.dev/) still shows older, unvalidated health estimates; do not use them for medical decisions.
+
+The update preserves the existing breath, motion and heart screens, removes some unsupported claims and prepares an optional Codex report. The Codex report is currently unavailable: the API rejected the requested session spending control. See [Codex analytics status](tools/sensor-cloud/CODEX-ANALYSIS.md), the [updated slides](submission/Resona-DevDay.pptx) and [demo script](submission/Resona-DevDay-script.md).
+
+To run the Pages demo locally, install dependencies with `npm ci` and build with `npm run build --workspace=client`. Set `SESSION_SECRET` and a random `DEMO_ACCESS_TOKEN` of at least 32 URL-safe characters in your shell. Then run:
+
+```sh
+npx wrangler d1 execute resona --local --file schema.sql --persist-to .wrangler/demo-data
+npx wrangler pages dev client/dist --persist-to .wrangler/demo-data --binding SESSION_SECRET=$SESSION_SECRET --binding DEMO_ACCESS_TOKEN=$DEMO_ACCESS_TOKEN
+```
+
+Open the local address with `#demo=` followed by your demo access token, then choose the guest button. Keep the token private. The local D1 database is separate from Cloudflare. Phone sensor access requires HTTPS. The separate Express/Postgres instructions further down describe the earlier backend.
+
+## Earlier DevDay sensor experiment
+
+This separate experiment records a breath sound and a short walk. It is not the original Resona app. These values describe the recording; they are not validated health measurements or a medical assessment.
 
 Raw sound and motion samples are processed in the browser. If you choose an AI-selected note, the app sends the extracted numerical readings to the demo server and OpenAI. Those readings can still be personal information. OpenAI selects from fixed, non-medical notes rather than writing a diagnosis. The optional note needs a configured server and private demo link; the readings remain visible if it is unavailable.
 
@@ -10,13 +25,13 @@ From the repository root, run `npm ci`, then `npm run dev:client` and open `http
 
 The new sensor flow reuses the original audio and motion processing and Resona's design. Codex helped build the new interface, wire the browser readings to a constrained server-side note, and test the flow. See [submission notes](submission/devday-reset/README.md) for credits, narration and the earlier Reset recordings.
 
-The [Cloudflare sensor page](https://resona-devday-sensor.skfsk27.workers.dev/sensor) is deployed for the hackathon. AI notes require the private demo link and have a limited number of attempts. See [Worker setup](tools/sensor-cloud/README.md) for deployment instructions.
+The [Cloudflare sensor page](https://resona-devday-sensor.skfsk27.workers.dev/sensor) is a separate experiment. AI notes require the private demo link and have a limited number of attempts. See [Worker setup](tools/sensor-cloud/README.md) for deployment instructions.
 
 The earlier Resona Reset prototype remains at `/reset.html`. Its recordings and [build evidence](docs/devday-reset.html) describe that prototype, not the new sensor demo.
 
 ## Earlier Resona product
 
-The sections below document the original authenticated product and its separate server and database. They do not describe the scope of today's demo.
+The sections below document the original authenticated product and its separate server and database. Its older health estimates and medical framing are unvalidated.
 
 > Every body has a rhythm.
 
@@ -26,13 +41,13 @@ Employees sign in with their work email, spend two minutes on three biosignal ch
 
 Resona started as a prototype for the Watcha Global AI Hackathon (London, 18-19 April 2026) and is now being built out as a corporate wellness product. See `scratchpad.md` for current state.
 
-## What it measures
+## Experimental readings
 
-- **Module 01 · Breath.** Acoustic spirometry from a 6-second forced exhalation into the phone microphone. Estimates FEV1, FVC, PEF, and percent-predicted against Hankinson NHANES III reference equations. Adds two ATS 2019 effort-quality flags.
-- **Module 02 · Motion.** Tremor from 10-second stillness and gait cadence from a 10-step walk, using the phone's accelerometer (DeviceMotion API) at 60 Hz. FFT-banded into parkinsonian, essential, and physiological ranges.
-- **Module 03 · Heart.** rPPG from the front camera. 30-second face-centred capture, MediaPipe Tasks Vision face detect to forehead + cheeks ROIs, POS (Wang 2017) pulse extraction, FFT-derived HR with parabolic interpolation, freq-domain bandpass + peak-detect for RMSSD and SDNN. Quality grades (good / fair / poor / unknown) gate the report; poor short-circuits to coaching without showing a number.
+- **Module 01 · Breath.** Describes the level and duration of a microphone recording.
+- **Module 02 · Motion.** Uses the phone's motion sensor to estimate movement frequency and walking cadence.
+- **Module 03 · Heart.** Experiments with a camera-based pulse estimate and checks capture quality.
 
-**This is a screening tool. Not a medical diagnosis.**
+These readings are unvalidated and are not medical screening or a diagnosis.
 
 ## Privacy
 
