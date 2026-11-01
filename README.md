@@ -4,6 +4,8 @@
 
 Today's new entry is **Resona Reset**: a private check-in, a guided minute, and one practical next step. Open `/reset.html`. It runs in the browser without the original app's server, database, account or API key.
 
+Try the [public preview](https://feat-devday-reset.resona-dmf.pages.dev/reset). The hackathon work is on [the DevDay branch](https://github.com/kitfunso/resona/tree/feat/devday-reset).
+
 From the repository root, run `npm ci`, then `npm run dev:client`. Open `http://localhost:5174/reset.html`.
 
 For checks, run `npm test --workspace=client` and `npm run build --workspace=client`. To serve the build, run `npm run preview --workspace=client -- --host 127.0.0.1 --port 5188`, then open `http://127.0.0.1:5188/reset.html`.

@@ -65,4 +65,4 @@ Suggested narration for the shorter edit:
 
 See [the local evidence page](../../docs/devday-reset.html). Chromium was checked at phone, tablet and desktop widths, including keyboard controls and reduced motion. Tab-hide pause was checked by a simulated `visibilitychange` event because the headless browser did not report a real tab as hidden. A real Safari or phone backgrounding check remains for rehearsal. No server or database code changed, so their suites were not part of this feature's checks.
 
-The public link, narration and event submission remain separate final steps. Do not submit the old Resona product as today's work.
+The [public preview](https://feat-devday-reset.resona-dmf.pages.dev/reset) is a static deployment of this entry, separate from the original app. Narration and event submission remain pending. Do not submit the old Resona product as today's work.
