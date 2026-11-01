@@ -152,9 +152,6 @@ export function neuroReportFallback({ tremor, gait }) {
 
 export function heartReportFallback({ heart }) {
   const hr = Math.round(heart?.hrBpm ?? 0);
-  const hrvLine = Number.isFinite(heart?.hrvRmssdMs)
-    ? `Your beat-to-beat variability was ${heart.hrvRmssdMs.toFixed(0)} milliseconds. `
-    : '';
   const hrClass = heart?.hrClassification ?? 'normal';
   const ageNote = heart?.ageNote ?? null;
 
@@ -163,7 +160,6 @@ export function heartReportFallback({ heart }) {
       headline: `Resting heart rate came in around ${hr} bpm.`,
       interpretation:
         `${hr} bpm sits above the typical resting range of 60 to 100 beats per minute. ` +
-        hrvLine +
         'A 30-second phone reading often runs slightly high because being on camera lifts the heart rate. Retry seated, after a slow breath.',
       actions: [
         { title: 'Take a 5-minute seated reset', detail: 'Sit, slow your breath, then retake the reading in the same light.' },
@@ -180,7 +176,6 @@ export function heartReportFallback({ heart }) {
       headline: `Resting heart rate came in around ${hr} bpm.`,
       interpretation:
         `${hr} bpm sits below the typical resting range of 60 to 100 beats per minute. ` +
-        hrvLine +
         'A lower resting heart rate is often a fitness signature in healthy adults, especially with regular cardio.',
       actions: [
         { title: 'Keep your training going', detail: 'Regular endurance work commonly drops resting heart rate. A low number alone is rarely a concern.' },
@@ -197,7 +192,6 @@ export function heartReportFallback({ heart }) {
       headline: `Resting heart rate reading was unclear.`,
       interpretation:
         'The 30-second phone capture could not lock onto a clean pulse this time. ' +
-        hrvLine +
         'Retry in brighter even light with your face held steady in the oval.',
       actions: [
         { title: 'Move into brighter light', detail: 'Daylight or a steady soft lamp beats variable indoor light for the camera.' },
@@ -220,7 +214,6 @@ export function heartReportFallback({ heart }) {
     headline: `Your resting heart rate landed around ${hr} bpm.`,
     interpretation:
       `${hr} bpm sits within the typical resting range of 60 to 100 beats per minute. ` +
-      hrvLine +
       'A phone-camera reading is a screening number, not a clinical measurement.' +
       ageLine,
     actions: [

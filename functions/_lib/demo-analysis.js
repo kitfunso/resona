@@ -1,7 +1,7 @@
 const FIELDS = Object.freeze({
   breath: { rmsEnergy: [0, 10], activeSec10: [0, 30], peakEnv: [0, 10] },
   motion: { dominantFrequencyHz: [0, 100], sampleRate: [0, 500], stepsDetected: [0, 300, true], cadence: [0, 300], stridesCv: [0, 10], symmetryIndex: [0, 1] },
-  heart: { hrBpm: [0, 300], hrvRmssdMs: [0, 1000], sdnnMs: [0, 1000], beatCount: [0, 300, true], durationSec: [0, 120] },
+  heart: { hrBpm: [0, 300], beatCount: [0, 300, true], durationSec: [0, 120] },
 });
 
 export async function readAnalysisBody(request) {

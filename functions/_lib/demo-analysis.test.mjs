@@ -16,6 +16,7 @@ test('only bounded numerical sensor features are accepted', () => {
   for (const value of [{ rawAudio: [1] }, { rmsEnergy: Infinity }, { rmsEnergy: 11 }, { name: 'person' }]) assert.equal(pickReadings('breath', [value]), null);
   assert.equal(pickReadings('motion', [{ stepsDetected: 2.5 }]), null);
   assert.equal(pickReadings('heart', [{ hrBpm: -1 }]), null);
+  assert.equal(pickReadings('heart', [{ hrBpm: 72, hrvRmssdMs: 40 }]), null);
 });
 
 test('provider is called only with the chosen numeric features', async () => {

@@ -52,6 +52,7 @@ test('analyzeHeart sends only the heart feature payload', async () => {
     demographics: { ageYears: 30, sex: 'male' },
   });
   assert.equal(cap.path, '/api/analyze-heart');
+  assert.equal('hrvRmssdMs' in cap.body.heart, false);
   for (const k of Object.keys(cap.body)) {
     assert.ok(ALLOWED_HEART.has(k), `unexpected top-level key in heart payload: ${k}`);
   }

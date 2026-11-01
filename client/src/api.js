@@ -33,7 +33,7 @@ export function analyzeBlow({ features }) {
 }
 
 export function analyzeHeart({ heart }) {
-  return postJson('/api/analyze-heart', { heart: numbers(heart, ['hrBpm', 'hrvRmssdMs', 'sdnnMs', 'beatCount', 'durationSec']) });
+  return postJson('/api/analyze-heart', { heart: numbers(heart, ['hrBpm', 'beatCount', 'durationSec']) });
 }
 
 export function analyzeNeuro({ tremor, gait }) {
