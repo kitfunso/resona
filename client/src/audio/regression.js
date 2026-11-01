@@ -1,17 +1,6 @@
-// Demo-grade estimator from acoustic features to FEV1 / FVC / PEF.
-//
-// Demo-grade estimator, not clinical-grade. Calibrated to produce
-// physiologically plausible values for Sunday demo.
-//
-// Strategy per brief: compute the user's Hankinson-predicted values, then
-// map extracted features to a fraction of predicted such that:
-//   weak effort   → 40–70%
-//   typical       → 85–115%
-//   strong effort → 110–130%
-//
-// Fraction driver is a tanh-squashed blend of peak envelope, RMS energy,
-// and decay tau. Those three capture "how hard you blew" + "how long you
-// sustained it" without inventing paper coefficients.
+// Demo-grade estimator, not clinical-grade: maps acoustic blow features to a
+// fraction of Hankinson-predicted FEV1/FVC/PEF (weak 40-70%, typical 85-115%,
+// strong 110-130%). Calibration detail in docs/ARCHITECTURE.md.
 
 import { hankinsonPredicted } from '../../../shared/reference-equations.js';
 
@@ -19,32 +8,9 @@ function clamp(x, lo, hi) {
   return Math.max(lo, Math.min(hi, x));
 }
 
-// Combine features into a single "effort score".
-//
-// DURATION-ONLY SCORING. Calibrated against 11 blow attempts on iOS Safari
-// which showed peak/rms varying by 3x between attempts of the same stated
-// effort level, depending on phone-to-mouth distance. `activeSec20` is a
-// within-blow ratio (time envelope stayed above 20% of its OWN peak), so it
-// is invariant to distance, gain, and ambient noise floor.
-//
-// Mapping: each second of sustained exhalation = 0.5 score units = 15% predicted.
-//   activeSec05 < 2s  → score < -1.0  → ~55-70% predicted  → weak
-//   activeSec05 ~3s   → score ≈ -0.75 → ~80% predicted     → low-normal
-//   activeSec05 ~4.5s → score = 0     → 100% predicted     → normal
-//   activeSec05 ~5.5s → score ≈ +0.5  → ~115% predicted    → strong
-//   activeSec05 ≥ 6s  → score ≥ +0.75 → ~120-130%         → max
-//
-// Why 5% not 10%/20% peak threshold? Turbulent-flow noise scales with the
-// SQUARE of airflow rate. As the lungs empty, flow drops linearly but
-// the mic envelope drops quadratically. So a user genuinely exhaling for
-// 5s produces envelope that crosses 10% of peak at ~2-3s even though air
-// is still flowing. A 5% threshold captures the full tapered exhalation
-// while staying above typical mic noise floor.
-//
-// Why not amplitude? User's attempts 6 and 11 (both "max effort"):
-//   attempt 6:  peakEnv=2.06, rmsEnergy=0.89
-//   attempt 11: peakEnv=0.70, rmsEnergy=0.35
-// Same user, same intent, 3x difference in amplitude. Phone held closer in 6.
+// Duration-only score (amplitude/gain-invariant): 11 iOS Safari calibration
+// blows showed peak/RMS varying 3x by phone distance at equal stated effort.
+// Full derivation and the 5%-threshold physics are in docs/ARCHITECTURE.md.
 const NORMAL_SUSTAIN_SEC = 4.5; // score = 0 at this activeSec05 duration
 const SEC_PER_SCORE_UNIT = 2.0; // each unit of score = 2s of sustain
 
@@ -58,22 +24,15 @@ function scoreToFraction(score) {
   return clamp(1.0 + 0.30 * score, 0.40, 1.30);
 }
 
-// Per-metric nudges from timing features (amplitude/gain-invariant).
-// Small effects (max ±6%) so the duration signal stays dominant, but enough
-// that the three percentages diverge like real spirometry rather than locking
-// step. Physiology:
-//   FEV1 = air in first second, sensitive to how fast peak flow was reached.
-//   PEF  = peak instantaneous flow, same driver but more sensitive.
-//   FVC  = total volume, sensitive to how well the tail tapers.
+// Small (max +/-6%) per-metric nudges from timing so FEV1/PEF/FVC diverge
+// like real spirometry instead of moving in lockstep; see docs/ARCHITECTURE.md
+// for the physiology behind each nudge.
 function perMetricBias(features) {
-  // Peak timing: ideal peak lands in the first ~250ms of effort.
-  // peakTimeSec <= 0.15s → z = +1  (excellent forced start)
-  // peakTimeSec >= 0.80s → z = -1  (late peak, ATS flag territory)
+  // peakTimeSec <= 0.15s -> z=+1 (fast start); >= 0.80s -> z=-1 (ATS-flag late peak).
   const peakTimeSec = Number.isFinite(features.peakTimeSec) ? features.peakTimeSec : 0.4;
   const peakTimingZ = clamp((0.475 - peakTimeSec) / 0.325, -1, 1);
 
-  // Tail shape: what fraction of the active blow lived in the taper
-  // (between 20% and 5% of peak). Long taper = full lung emptying = better FVC.
+  // Fraction of the blow spent tapering (20%->5% of peak); longer = fuller exhale.
   const sec05 = Number.isFinite(features.activeSec05) ? features.activeSec05 : 4;
   const sec20 = Number.isFinite(features.activeSec20) ? features.activeSec20 : 3;
   const tailRatio = sec05 > 0 ? (sec05 - sec20) / sec05 : 0.3;
@@ -98,18 +57,14 @@ function sanityCheck({ fev1, fvc, pef }) {
   return { ok: true };
 }
 
-// Produce FEV1/FVC/PEF + percent-predicted for each, plus a sanity flag.
-// If sanity fails, we fall back to the predicted values themselves
-// (i.e., assume 100% predicted) and mark `sanityFallback: true`.
+// On failed sanity check, falls back to the predicted values themselves
+// (100% predicted) and marks `sanityFallback: true`.
 export function estimateSpirometry({ features, demographics }) {
   const predicted = hankinsonPredicted(demographics);
 
   const score = effortScore(features);
   const fraction = scoreToFraction(score);
 
-  // Duration-only score drives the base fraction (AGC-proof). Timing features
-  // then nudge each metric independently within ±6% so the three percentages
-  // diverge like real spirometry. Sanity check enforces FVC >= FEV1 downstream.
   const bias = perMetricBias(features);
   const fev1Frac = clamp(fraction * (1 + bias.fev1), 0.40, 1.35);
   const fvcFrac  = clamp(fraction * (1 + bias.fvc),  0.40, 1.35);

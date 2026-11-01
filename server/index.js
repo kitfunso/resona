@@ -65,18 +65,13 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5174')
   .map((s) => s.trim())
   .filter(Boolean);
 
-// -----------------------------------------------------------------------------
-// Express + /health + /api/analyze-blow
-// -----------------------------------------------------------------------------
 const app = express();
 app.set('trust proxy', 1);
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    // Disallowed origin: omit the CORS header and let the browser enforce the
-    // policy. Do NOT throw — throwing surfaces as a 500 for every request that
-    // carries an Origin, including same-origin `crossorigin` ES-module asset
-    // loads, which blanks the whole app behind a proxy/tunnel.
+    // Omit the CORS header instead of throwing: throwing 500s every request
+    // carrying an Origin, including same-origin ES-module asset loads.
     cb(null, false);
   },
   credentials: true,
@@ -211,9 +206,8 @@ app.post('/api/analyze-blow', requireAuth, async (req, res) => {
   if (!features || !estimate) {
     return res.status(400).json({ error: 'missing features or estimate' });
   }
-  // Validate the estimate shape up front: classifierFallback and
-  // personalReportFallback dereference these fields, and a malformed body
-  // would otherwise throw deep in a handler and crash the process.
+  // classifierFallback/personalReportFallback dereference these fields;
+  // a malformed body would otherwise crash deep in a handler.
   if (
     !Number.isFinite(estimate.fev1) ||
     !Number.isFinite(estimate.fvc) ||
@@ -320,10 +314,8 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-// Demo-only guest sign-in. Mints an ephemeral user in the 'demo' org and issues
-// a normal session so a visitor can fill in their details and try the checks
-// without email OTP — the original hackathon flow. Gated behind DEMO_MODE so a
-// production (org/OTP) deployment never exposes it. Reuses authRequestLimiter.
+// Demo-only guest sign-in (ephemeral user, no OTP): gated behind DEMO_MODE
+// so a production deployment never exposes the original hackathon flow.
 app.post('/api/auth/guest', authRequestLimiter, async (req, res) => {
   if (process.env.DEMO_MODE !== 'true') return res.status(404).json({ error: 'not found' });
   const client = await pool.connect();
@@ -371,9 +363,8 @@ const ETHNICITY_VALUES = new Set([
   'South Asian', 'Southeast Asian', 'Middle Eastern', 'Indigenous', 'Mixed', 'Other',
 ]);
 
-// Module-scoped cap for GET /api/me/check-ins. Behaviour is "clamp, never
-// 400": invalid input degrades to the default 50, matching the existing
-// PATCH /api/me tolerance for partial / malformed payloads.
+// Clamp-never-400: invalid input degrades to the default 50, matching
+// PATCH /api/me's tolerance for partial/malformed payloads.
 const ME_CHECK_INS_DEFAULT_LIMIT = 50;
 const ME_CHECK_INS_MAX_LIMIT = 200;
 
@@ -410,12 +401,9 @@ app.patch('/api/me', requireAuth, async (req, res) => {
   res.json({ user: await loadCurrentUser(req.auth.userId) });
 });
 
-// Personal check-in history. requireAuth is sufficient gating: this is an
-// authed personal-history read scoped to req.auth.userId, and auth_codes
-// already rate-limits the path to acquire a session, so no additional
-// limiter is layered on. The handler returns an explicit allowlist of
-// fields per row; the raw check_ins.payload JSONB is projected per-kind
-// in SQL and never leaves the server wholesale (Article 5(1)(c)).
+// requireAuth alone is sufficient gating (auth_codes already rate-limits
+// session acquisition); returns an explicit field allowlist, never the raw
+// check_ins.payload JSONB wholesale (Article 5(1)(c)).
 app.get('/api/me/check-ins', requireAuth, async (req, res) => {
   const rawLimit = req.query.limit;
   const parsed = Number.parseInt(rawLimit, 10);
@@ -462,9 +450,7 @@ app.get('/api/me/check-ins', requireAuth, async (req, res) => {
   }
 });
 
-// -----------------------------------------------------------------------------
 // Admin bootstrap endpoints
-// -----------------------------------------------------------------------------
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
 if (ADMIN_TOKEN && ADMIN_TOKEN.length < 32) {
   throw new Error('ADMIN_TOKEN must be at least 32 chars');
@@ -524,10 +510,8 @@ app.post('/api/admin/users', adminLimiter, requireAdmin, async (req, res) => {
   if (typeof orgSlug !== 'string' || typeof email !== 'string' || !email.includes('@')) {
     return res.status(400).json({ error: 'invalid input' });
   }
-  // Optional role at creation (defaults to 'member'). This is the ONLY
-  // token-gated way to mint an org's first admin: ongoing role changes are
-  // session-RBAC (see POST /api/admin/users/:id/role), so without this the
-  // first admin would be unreachable (no existing admin to grant the role).
+  // Only token-gated way to mint an org's first admin; ongoing changes are
+  // session-RBAC (POST /api/admin/users/:id/role) once one admin exists.
   const newRole = role === undefined ? 'member' : role;
   if (typeof newRole !== 'string' || !ROLE_VALUES.has(newRole)) {
     return res.status(400).json({ error: 'invalid role' });
@@ -560,20 +544,16 @@ app.post('/api/admin/users', adminLimiter, requireAdmin, async (req, res) => {
   }
 });
 
-// Allowlist for role values. Mirrors the CHECK constraint on users.role and
-// role_grants.granted_role from 003_admin.sql. Keep in sync if either CHECK
-// changes.
+// Mirrors the CHECK constraint on users.role / role_grants.granted_role
+// from 003_admin.sql -- keep in sync if either CHECK changes.
 const ROLE_VALUES = new Set(['member', 'admin']);
 
-// Match a UUID shape before any DB call so a malformed :id param returns a
-// clean 400 instead of PG 22P02 (invalid_text_representation) escaping as a
-// generic 500. Loose v1..v8 shape, case-insensitive; the DB lookup still
-// 404s on a well-formed UUID that doesn't exist.
+// Shape-check before any DB call so a malformed :id returns a clean 400
+// instead of PG 22P02 escaping as a 500.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Team name validation mirrored from 003_admin.sql's teams.name CHECK. The
-// handler validates ahead of the insert so the friendly 400 fires before a
-// 23514 surfaces from the constraint.
+// Mirrors 003_admin.sql's teams.name CHECK so a friendly 400 fires before
+// a raw 23514 constraint error would.
 const TEAM_NAME_RE = /^[A-Za-z0-9 .,&'\-]+$/;
 function isValidTeamName(name) {
   return typeof name === 'string'
@@ -582,11 +562,9 @@ function isValidTeamName(name) {
     && TEAM_NAME_RE.test(name);
 }
 
-// Session RBAC (SEC-1): role grants are no longer the global ADMIN_TOKEN's job.
-// An org admin (requireOrgAdmin) manages roles ONLY within their own org -
-// orgId comes from req.currentUser, never from input - so a leaked token can no
-// longer mint admins anywhere. granted_by records the acting admin. The org's
-// first admin is bootstrapped via POST /api/admin/users {role:'admin'} (token).
+// Session RBAC: org admins manage roles only within their own org (orgId
+// from req.currentUser, never input), so a leaked ADMIN_TOKEN can't mint
+// admins elsewhere. First admin is still bootstrapped via the token route.
 app.post('/api/admin/users/:id/role', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) {
@@ -648,19 +626,8 @@ app.post('/api/admin/users/:id/role', adminLimiter, requireAuth, requireOrgAdmin
   }
 });
 
-// DELETE /api/admin/users/:id
-// Right-to-erasure (UK GDPR Art 17) for an org admin acting within their OWN
-// org. Session-RBAC (requireOrgAdmin), NOT the global ADMIN_TOKEN: the org is
-// taken from req.currentUser.org_id, never from input, so an admin can only
-// erase users in their own tenant. The DELETE is bound to (id, org_id) and the
-// ON DELETE CASCADE chain (check_ins, team_memberships, role_grants) purges all
-// of the user's data in one statement. A [user-erase] line is the Art 5(2)
-// accountability surface; the deleted user's own role_grants cascade away with
-// them, which is the correct erasure behaviour.
-//
-// Residual scope NOT covered here (documented for the DPA): server access logs,
-// LLM trace files, and any external sub-processor copies are not purged by this
-// route.
+// DELETE /api/admin/users/:id -- right-to-erasure (GDPR Art 17), session-RBAC
+// only, scoped to (id, org_id); full contract in docs/ARCHITECTURE.md.
 app.delete('/api/admin/users/:id', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
   const { id } = req.params;
   if (!UUID_RE.test(id)) {
@@ -755,9 +722,7 @@ app.post('/api/admin/teams/:id/members', adminLimiter, requireAdmin, async (req,
   );
   if (users.length === 0) return res.status(404).json({ error: 'user not found' });
   const user = users[0];
-  // Friendlier 400 ahead of the schema-level 23503. Defence-in-depth: the
-  // composite FK on team_memberships still rejects the insert below if a
-  // future caller skips this check.
+  // Friendlier 400 ahead of the schema-level 23503 (defence-in-depth).
   if (user.org_id !== team.org_id) {
     return res.status(400).json({ error: 'cross-org add' });
   }
@@ -771,31 +736,17 @@ app.post('/api/admin/teams/:id/members', adminLimiter, requireAdmin, async (req,
     res.status(201).json({ membership: rows[0] });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'already a member' });
-    // 23503 from the composite FK means an attempted cross-org row that the
-    // handler check above missed. Map to the same 400 so the contract stays
-    // consistent. Do NOT catch 23P01 here: that is a serialisation failure,
-    // not a tenant signal, and should bubble to a 500.
+    // Composite-FK 23503 means a cross-org row the check above missed; map
+    // to the same 400 (don't catch 23P01, that's a serialisation failure).
     if (err.code === '23503') return res.status(400).json({ error: 'cross-org add' });
     console.error('[admin/teams/members]', err);
     res.status(500).json({ error: 'failed' });
   }
 });
 
-// -----------------------------------------------------------------------------
-// Phase B Task B2: admin aggregate reads (min-N=5 suppressed)
-// -----------------------------------------------------------------------------
-// All three routes mounted as requireAuth + requireOrgAdmin. org_id is sourced
-// EXCLUSIVELY from req.currentUser.org_id (the JWT-derived users-row join from
-// E2's requireOrgAdmin); never from request body or query.
-//
-// Article 9 special-category employer-as-controller surface. See
-// server/aggregates.js for MIN_GROUP, the SUPPRESSED sentinel discriminant,
-// the frozen BANDS table, and the three suppression layers.
-
-// parseDays enforces the ?days input contract for the aggregate routes:
-// integer in [1, 365], default 30, REJECT anything else with 400. We do
-// not silently clamp - clamping hides client bugs and a 36500-day query
-// is a DoS surface combined with finer-slice triangulation.
+// Admin aggregate reads (Article 9 surface, requireOrgAdmin only; see
+// aggregates.js for MIN_GROUP/SUPPRESSED/BANDS). parseDays rejects (never
+// clamps) out-of-[1,365] input -- clamping would hide bugs and enable a DoS.
 const DAYS_MIN = 1;
 const DAYS_MAX = 365;
 const DAYS_DEFAULT = 30;
@@ -816,23 +767,16 @@ function parseDays(rawValue) {
   return { value: n };
 }
 
-// adminAuditRead emits a [admin-read] line on every successful aggregate
-// read. UK GDPR Art 5(2) accountability: read-side mirror of [admin-deny]
-// (requireOrgAdmin) and [role-grant] (Phase A). Information disclosed is
-// bounded by what's already in the HTTP access log; adding user_id +
-// org_id is what makes the trail useful for incident review.
+// [admin-read] audit line (Art 5(2)), mirroring [admin-deny]/[role-grant];
+// adds user_id+org_id on top of what the HTTP access log already has.
 function adminAuditRead(req) {
   console.info(
     `[admin-read] user=${req.currentUser.id} org=${req.currentUser.org_id} path=${req.method} ${req.originalUrl}`,
   );
 }
 
-// GET /api/admin/overview?days=30
-// Returns participation + per-modality distribution for the whole org.
-// adminLimiter applies the same 20 req/min cap as the bootstrap POST
-// endpoints; this is the differential-probe mitigation - without it an
-// admin could call ?days=1, ?days=2, ..., ?days=365 to triangulate
-// per-day check-in deltas and defeat MIN_GROUP suppression.
+// Whole-org participation + per-modality distribution; adminLimiter's cap
+// is a differential-probe mitigation (see docs/ARCHITECTURE.md).
 app.get('/api/admin/overview', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
   const days = parseDays(req.query.days);
   if (days.error) return res.status(400).json({ error: days.error });
@@ -853,11 +797,8 @@ app.get('/api/admin/overview', adminLimiter, requireAuth, requireOrgAdmin, async
   }
 });
 
-// GET /api/admin/teams
-// Returns the org's teams with per-team member counts (suppressed if a team
-// has fewer than MIN_GROUP members - a team of 3 is itself identifying;
-// suppress(count, count) uses the count both as value and as threshold by
-// design - the count itself is the identifying signal).
+// Per-team member counts, suppressed below MIN_GROUP (count doubles as
+// value and threshold gate; see docs/ARCHITECTURE.md).
 app.get('/api/admin/teams', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
   const orgId = req.currentUser.org_id;
   try {
@@ -870,9 +811,7 @@ app.get('/api/admin/teams', adminLimiter, requireAuth, requireOrgAdmin, async (r
         ORDER BY lower(t.name) ASC`,
       [orgId],
     );
-    // suppress count itself - a team of <5 has a count that re-identifies.
-    // value === n by design: the count is both the value we'd show and the
-    // threshold gate.
+    // A team's count doubles as its own threshold gate (docs/ARCHITECTURE.md).
     const teams = rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -888,31 +827,17 @@ app.get('/api/admin/teams', adminLimiter, requireAuth, requireOrgAdmin, async (r
   }
 });
 
-// GET /api/admin/teams/:id/overview?days=30
-// Team-scoped variant of /overview. The 404 response is BYTE-IDENTICAL for
-// three cases (status, headers we control, body):
-//   (a) :id is a malformed UUID
-//   (b) :id is a well-formed UUID that doesn't exist anywhere
-//   (c) :id is a well-formed UUID that exists but belongs to another org
-// Distinguishable status codes here would let an org-A admin enumerate team
-// UUIDs across the system. Timing-channel distinguishability is out of
-// scope at this threat level (the cost-benefit of equalising via sentinel
-// SELECTs is poor relative to GDPR's actual concerns); status + body are
-// the surfaces we hold equal.
+// Team-scoped /overview. The 404 is byte-identical for malformed id,
+// missing id, and another-org's id -- see docs/ARCHITECTURE.md for why.
 const NOT_FOUND_BODY = { error: 'not found' };
 app.get('/api/admin/teams/:id/overview', adminLimiter, requireAuth, requireOrgAdmin, async (req, res) => {
-  // Order matters: parse days BEFORE the UUID check so a malformed-days
-  // query returns 400 regardless of UUID shape. If UUID-check ran first,
-  // a malformed UUID + malformed days would return 404 while a valid UUID +
-  // malformed days returns 400 - a distinguishability leak (an attacker
-  // could probe ?days=foo to detect UUID well-formedness).
+  // Parse days BEFORE the UUID check: reversing the order would let a
+  // ?days=foo probe distinguish UUID well-formedness via 400 vs 404.
   const days = parseDays(req.query.days);
   if (days.error) return res.status(400).json({ error: days.error });
 
   const teamId = req.params.id;
-  // Regex-validate BEFORE the SELECT so a malformed id returns the same 404,
-  // not a 500 from PG's 22P02 (invalid_text_representation). Reuses the
-  // UUID_RE defined for the admin endpoints above.
+  // Regex-validate before the SELECT so a malformed id 404s, not a PG 22P02 500.
   if (!UUID_RE.test(teamId)) {
     return res.status(404).json(NOT_FOUND_BODY);
   }
@@ -928,11 +853,8 @@ app.get('/api/admin/teams/:id/overview', adminLimiter, requireAuth, requireOrgAd
     }
     const team = rows[0];
 
-    // For team-scope, we don't currently surface a separate "participation"
-    // pair (active / total): that maps awkwardly to "team active vs team
-    // total" and the team total is itself identifying for small teams. The
-    // distribution is the privacy-preserving signal; Phase C UI gets per-team
-    // counts via /api/admin/teams.
+    // No separate participation pair at team scope -- that split is itself
+    // identifying for a small team; see docs/ARCHITECTURE.md.
     const [breath, motion, heart] = await Promise.all([
       modalityDistribution(orgId, 'breath', days.value, { teamId }),
       modalityDistribution(orgId, 'motion', days.value, { teamId }),
@@ -946,11 +868,8 @@ app.get('/api/admin/teams/:id/overview', adminLimiter, requireAuth, requireOrgAd
   }
 });
 
-// -----------------------------------------------------------------------------
-// Static client — in production this server also serves the built SPA, so the
-// whole app deploys as a single unit. In dev the client runs under Vite, so
-// this block is inert (NODE_ENV unset, and client/dist may not exist).
-// -----------------------------------------------------------------------------
+// Static client: production serves the built SPA from here; in dev this
+// block is inert (client runs under Vite, client/dist may not exist).
 const CLIENT_DIST = path.join(__dirname, '..', 'client', 'dist');
 if (process.env.NODE_ENV === 'production' && fs.existsSync(CLIENT_DIST)) {
   app.use(express.static(CLIENT_DIST));
@@ -961,14 +880,10 @@ if (process.env.NODE_ENV === 'production' && fs.existsSync(CLIENT_DIST)) {
   });
 }
 
-// -----------------------------------------------------------------------------
 // HTTP server
-// -----------------------------------------------------------------------------
 const server = http.createServer(app);
 
-// Export the Express app so the HTTP integration test (Task B8.5) can
-// mount it without binding a port. Only migrate + listen when this file
-// is run directly, not when it's imported.
+// Exported so the HTTP integration test can mount it without binding a port.
 export { app };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

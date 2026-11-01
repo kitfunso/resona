@@ -53,10 +53,9 @@ export default defineConfig({
         validate: path.resolve(__dirname, 'test-harness/validate.html'),
       },
       output: {
-        // Split the React runtime into its own chunk (FE-5). React changes far
-        // less often than app code, so returning users keep vendor-react cached
-        // across deploys instead of re-downloading React inside the app bundle
-        // on every ship. (MediaPipe is already a separate lazy chunk.)
+        // Split React into its own chunk (FE-5): it changes far less often than
+        // app code, so returning users keep vendor-react cached across deploys
+        // instead of re-downloading it inside the app bundle on every ship.
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
         },

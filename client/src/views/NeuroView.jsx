@@ -521,12 +521,9 @@ async function prep(seconds, onTick) {
   onTick(0);
 }
 
-// Play a short beep on the shared AudioContext. iOS Safari suspends the
-// context after a few seconds of silence, so we MUST await resume() before
-// scheduling oscillator nodes, otherwise currentTime is frozen and nothing
-// plays. navigator.vibrate does not exist on iOS at all, so audio is the
-// only cue for the gait test (phone in pocket) and we also render a big
-// visual flash for the tremor test (phone in hand).
+// iOS Safari suspends AudioContext after a few seconds of silence -- must
+// await resume() before scheduling oscillators or nothing plays. No vibrate
+// API on iOS, so audio is the only cue (plus a visual flash for tremor).
 async function buzz({ kind }) {
   try {
     if (navigator.vibrate) {

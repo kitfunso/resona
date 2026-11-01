@@ -1,8 +1,6 @@
-// DeviceMotion capture for Resona Module 2 (Neuro).
-//
-// iOS 13+ requires an explicit permission request triggered from a user
-// gesture. Android/desktop browsers fire devicemotion events directly.
-// Typical iOS Safari sample rate is ~60 Hz; Android varies 50-100 Hz.
+// DeviceMotion capture (Resona Module 2/Neuro). iOS 13+ requires an explicit
+// permission request from a user gesture; Android/desktop fire directly.
+// Typical rate: iOS Safari ~60Hz, Android 50-100Hz.
 
 function isIosPermissionApi() {
   return (

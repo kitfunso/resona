@@ -3,11 +3,9 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import ErrorBoundary from './components/ErrorBoundary.js';
 
-// -----------------------------------------------------------------------------
-// Resona, design system tokens + base typography.
-// Editorial medical-instrument aesthetic: cream/ink/brass, display serif for
-// brand moments, refined sans for body, monospace for numeric readings.
-// -----------------------------------------------------------------------------
+// Design tokens + base typography: editorial medical-instrument aesthetic
+// (cream/ink/brass), display serif for brand moments, refined sans for body,
+// monospace for numeric readings.
 const styles = `
   :root {
     color-scheme: dark;

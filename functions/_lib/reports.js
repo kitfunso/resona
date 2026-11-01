@@ -1,8 +1,6 @@
-// Deterministic (LLM-free) report layer, ported verbatim from
-// server/reports.js. These are pure functions of their arguments. On the
-// Cloudflare edge the LLM upstream (a local openclaw shim) is unreachable, so
-// the analyze-* Functions use these fallbacks directly — the same branch the
-// old server took when the model was unreachable.
+// Deterministic (LLM-free) report layer, ported verbatim from server/reports.js.
+// On the Cloudflare edge the LLM upstream is unreachable, so analyze-*
+// Functions use these fallbacks directly (same branch as an unreachable model).
 
 export function atsFlags(features) {
   const flags = [];

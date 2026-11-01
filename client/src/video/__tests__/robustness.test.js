@@ -1,16 +1,6 @@
-// Robustness / failure-mode tests for the rPPG heart pipeline.
-//
-// The existing pos/features tests prove the DSP recovers a *clean* synthetic
-// sine. These tests push the pipeline toward real-world conditions it will
-// actually meet on a phone:
-//   - sensor/quantisation noise at varying SNR
-//   - low-frequency baseline wander (lighting/skin-tone drift)
-//   - non-uniform frame timing (rAF jitter + dropped frames)
-//
-// The single most important assertion for a *health* product is the safety
-// one: on signal too poor to trust, the pipeline must NOT return a confident
-// 'good' grade with a wrong number. It should grade 'fair'/'poor' or flag
-// low_snr. These tests encode that contract.
+// Robustness tests: push the rPPG pipeline through sensor noise, baseline
+// wander, and frame jitter/drops. Safety contract: on untrustworthy signal
+// it must grade 'fair'/'poor' or flag low_snr, never a confident wrong number.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,13 +24,8 @@ function gauss(rand) {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
-// Build a realistic-ish rPPG sample object.
-//   bpm          true heart rate
-//   acAmp        pulsatile amplitude on green (fraction of DC ~0.5)
-//   noiseStd     per-channel white-noise std (sensor/quantisation/motion proxy)
-//   wanderAmp    low-freq (0.1 Hz) baseline drift amplitude (lighting/skin)
-//   jitterMs     stdev of per-frame timestamp jitter (rAF irregularity)
-//   dropRate     fraction of frames randomly dropped (non-uniform sampling)
+// Realistic-ish rPPG sample: bpm/acAmp are the true signal; noiseStd/wanderAmp/
+// jitterMs/dropRate model sensor noise, baseline drift, and frame timing.
 function makeRppg({
   bpm, fps = 30, durationSec = 30,
   acAmp = 0.01, noiseStd = 0, wanderAmp = 0, jitterMs = 0, dropRate = 0, seed = 1,
@@ -83,8 +68,6 @@ function makeRppg({
   };
 }
 
-// --- Accuracy under realistic-but-recoverable conditions -------------------
-
 test('recovers HR across a sweep (50/72/100/130 bpm) with mild noise + fps jitter', () => {
   for (const bpm of [50, 72, 100, 130]) {
     const { samples, durationSec } = makeRppg({
@@ -121,13 +104,10 @@ test('0.1 Hz baseline wander 5x the pulse amplitude is rejected; HR still ~66 bp
   );
 });
 
-// --- Safety: do NOT report a confident number on untrustworthy signal ------
-
 test('SAFETY: in-band motion interference must not produce a confident wrong HR', () => {
-  // True pulse at 60 bpm (1.0 Hz) plus a stronger competing in-band tone at
-  // 96 bpm (1.6 Hz) — a proxy for rhythmic motion/respiration artifact, the
-  // real-world threat (unlike white noise, which integrates out). The pipeline
-  // must either lock to the true 60 bpm or refuse to grade 'good'.
+  // Competing in-band tone at 96bpm vs true 60bpm pulse: proxy for rhythmic
+  // motion/respiration artifact (the real threat, unlike noise that integrates
+  // out). Pipeline must lock to 60bpm or refuse to grade 'good'.
   const rand = rng(42);
   const fps = 30, durationSec = 30, n = fps * durationSec;
   const t = [], fr = [], fg = [], fb = [];

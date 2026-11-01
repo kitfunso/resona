@@ -18,10 +18,9 @@ export function unlockAudio() {
     throw new Error('Web Audio API not supported on this device');
   }
   audioContextSingleton = new Ctor();
-  // iOS Safari unlock pattern: creating the context is not enough. You must
-  // also play an actual AudioBufferSourceNode within the user-gesture tick
-  // for the context to transition from "suspended" to "running". A single
-  // sample of silence at 22050 Hz is the canonical trick.
+  // iOS Safari unlock: creating the context isn't enough -- must also play an
+  // AudioBufferSourceNode within the user-gesture tick to go "suspended"->
+  // "running". A single 22050Hz silence sample is the canonical trick.
   try {
     const buf = audioContextSingleton.createBuffer(1, 1, 22050);
     const src = audioContextSingleton.createBufferSource();
@@ -56,19 +55,15 @@ async function getUserMediaStream() {
 }
 
 // Trigger the mic permission dialog in isolation, then release the stream.
-// Call this from the user tap, BEFORE any countdown, so the OS prompt does
-// not pop mid-countdown. The permission grant is sticky for the page session,
-// so recordBlow() below gets an instant stream after this resolves.
+// Call from the user tap BEFORE any countdown (so the OS prompt doesn't pop
+// mid-countdown); the grant is sticky, so recordBlow() gets an instant stream.
 export async function acquireMicPermission() {
   const stream = await getUserMediaStream();
   stream.getTracks().forEach((t) => t.stop());
 }
 
-// Records `durationMs` of raw mono PCM from the mic.
-// Returns { pcm: Float32Array, sampleRate: number }.
-//
-// onTick(pct, elapsedMs) fires ~10 Hz with recording progress.
-// onLevel(peak) fires ~60 Hz with instantaneous mic level in [0, 1]. Use for
+// Records `durationMs` of raw mono PCM; returns {pcm: Float32Array, sampleRate}.
+// onTick(pct, elapsedMs) fires ~10Hz; onLevel(peak) fires ~60Hz in [0,1] for
 // a live VU meter so the user can see their blow is actually being captured.
 export async function recordBlow({ durationMs = 6000, onTick, onLevel } = {}) {
   const ctx = getAudioContext();

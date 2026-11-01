@@ -1,14 +1,6 @@
-// Tremor analysis from accelerometer samples.
-//
-// Stillness test: user holds phone at arm's length for ~10s. We compute
-// acceleration magnitude minus gravity, detrend, FFT, and report power in
-// four bands:
-//   0.5-4 Hz  — not tremor (voluntary movement / postural drift)
-//   4-6 Hz    — Parkinsonian tremor (rest tremor)
-//   6-12 Hz   — essential tremor / kinetic tremor
-//   12-20 Hz  — physiological tremor (normal muscle activity)
-//
-// Screening only. The output IS NOT diagnostic.
+// Tremor classification from a ~10s stillness capture: acceleration magnitude
+// minus gravity, detrended, FFT'd into 4 clinical frequency bands (screening
+// only, NOT diagnostic). Band table and rationale in docs/ARCHITECTURE.md.
 
 const TWO_PI = 2 * Math.PI;
 
@@ -162,14 +154,9 @@ export function analyseTremor({ samples, rate }) {
     bands.parkinsonian_3_5p5 + bands.essential_5p5_11 + bands.physiological_11_20;
   const dominant = argmaxBin(mags, binHz, 3, 20);
 
-  // Screening rule of thumb, NOT clinical:
-  //   - Most healthy adults holding a phone for 10s have no dominant tremor
-  //     signature. Default to "physiological" unless a suspect band clearly
-  //     dominates the other two by at least 2x (Parkinsonian) or 1.6x
-  //     (essential-like).
-  //   - If voluntary low-frequency drift (< 3 Hz) outpowers all three tremor
-  //     bands, the person was swaying their arm, not tremoring. Call it
-  //     physiological too.
+  // Screening heuristic (not clinical): default 'physiological' unless one
+  // band dominates the other two by >=2x (Parkinsonian) or >=1.6x (essential),
+  // or low-freq drift (<3Hz) outpowers all three (arm sway, not tremor).
   let classification = 'physiological';
   let confidence = 0.5;
   const p = bands.parkinsonian_3_5p5;

@@ -1,21 +1,6 @@
-// Hankinson NHANES III reference equations (1999).
-// Source: Hankinson JL, Odencrantz JR, Fedan KB. Spirometric reference values
-// from a sample of the general U.S. population. Am J Respir Crit Care Med.
-// 1999;159(1):179-187.
-//
-// Coefficients are the published values for adults (age >= 20), cross-verified
-// against the rspiro R package source (github.com/thlytras/rspiro,
-// data-raw/NHtb45.csv, MIT-licensed).
-//
-// Equation form:
-//   value = b0 + b1 * age + b2 * age^2 + b3 * height^2
-//   age in years, height in cm, value in litres (L/s for PEF).
-//
-// NHANES III published 3 ethnic groups: Caucasian, African American,
-// Mexican American. It does NOT include South or East Asian cohorts.
-// For non-Hankinson ethnicities (south_asian, east_asian, black_non_aa,
-// mixed_or_other) we route to Caucasian coefficients and disclose the
-// limitation in the generated GP letter.
+// Hankinson NHANES III (1999) reference equations (cross-verified against
+// rspiro). No South/East Asian cohort: those route to Caucasian coefficients
+// (disclosed in the GP letter); citation + equation form in docs/ARCHITECTURE.md.
 
 const HANKINSON = {
   caucasian: {

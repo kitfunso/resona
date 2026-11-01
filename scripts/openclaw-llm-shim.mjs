@@ -1,12 +1,7 @@
 #!/usr/bin/env node
-// Local OpenAI-compatible shim -> openclaw `infer model run` (ChatGPT Pro OAuth,
-// Codex backend). Lets Resona run with $0 LLM cost while this PC + openclaw are
-// up. NOT for production: serial, PC-bound, rides a personal subscription.
-//
-//   POST /v1/chat/completions  ->  node openclaw.mjs infer model run --json
-//
-// Start: node scripts/openclaw-llm-shim.mjs        (listens on 127.0.0.1:8788)
-// Point Resona at it: OPENAI_BASE_URL=http://127.0.0.1:8788/v1
+// Local OpenAI-compatible shim -> openclaw infer (ChatGPT Pro OAuth/Codex).
+// NOT for production: serial, PC-bound, rides a personal subscription.
+// Start: node scripts/openclaw-llm-shim.mjs; point OPENAI_BASE_URL at :8788/v1.
 
 import http from 'node:http';
 import { spawn } from 'node:child_process';

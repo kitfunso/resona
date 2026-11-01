@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
-# scripts/test-db-up.sh
-#
-# Start the long-lived test Postgres container and block until it
-# accepts connections. Idempotent: re-running while up is a no-op.
-#
-# After this exits zero, `npm test --workspace=server` can connect
-# at postgres://skf_s@127.0.0.1:55432/resona_dev (matching the .env
-# DATABASE_URL convention).
+# Starts the long-lived test Postgres container, blocks until ready.
+# Idempotent (re-running while up is a no-op); once done, tests connect at
+# postgres://skf_s@127.0.0.1:55432/resona_dev (.env DATABASE_URL convention).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -1,14 +1,6 @@
-// Front-camera rPPG recorder. Exposes three functions:
-//   - acquireCameraPermission() prompts the OS dialog, then releases the stream
-//   - detectFirstFrameRoi(video) lazy-imports MediaPipe Tasks Vision and runs
-//     one face-detect pass; returns either { kind: 'face', rois } or { kind:
-//     'fallback', rois } after retries are exhausted by the caller
-//   - captureRppg({ video, durationMs, rois, onTick, onLiveHr }) reads ROI
-//     means per frame into a flat structure ready for features.js
-//
-// Privacy contract: the offscreen canvas used for sampling is module-scoped
-// and never appended to the DOM. Per-frame ImageData is consumed for its mean
-// RGB and released. Only the timestamped ROI means survive a capture.
+// Front-camera rPPG recorder (acquireCameraPermission/detectFirstFrameRoi/
+// captureRppg). Privacy contract: the offscreen sampling canvas is module-
+// scoped, never appended to the DOM; only timestamped ROI means survive.
 
 const TARGET_FPS = 30;
 const OFFSCREEN_FOREHEAD = { w: 32, h: 32 };

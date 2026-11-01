@@ -2,12 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeBlow, analyzeHeart, analyzeNeuro, getCheckIns, getSessionId } from '../api.js';
 
-// Privacy + behaviour tests for the API client (audit TEST-3). The headline
-// guarantee is the privacy boundary: only extracted NUMERIC features ever leave
-// the browser. These assert the request bodies carry exactly the allowed keys
-// and no raw-capture payload, using a mocked fetch (no DOM, no network).
-
-// api.js touches localStorage (session id) + global fetch in node.
+// Privacy tests for the API client (audit TEST-3): only extracted NUMERIC
+// features ever leave the browser, via mocked fetch (no DOM/network).
+// api.js touches localStorage for the session id + global fetch in node.
 globalThis.localStorage = (() => {
   const m = new Map();
   return {

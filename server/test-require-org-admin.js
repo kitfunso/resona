@@ -7,13 +7,9 @@ import { pool, migrate } from './db.js';
 import { issueSession, SESSION_COOKIE } from './auth.js';
 import { requireAuth, requireOrgAdmin } from './middleware-auth.js';
 
-// Two probe routes:
-//   /probe        : composed correctly: requireAuth -> requireOrgAdmin -> handler
-//   /probe-bare   : DELIBERATELY without requireAuth, so we can exercise the
-//                   defensive `if (!req.auth?.userId)` branch in requireOrgAdmin.
-//
-// No cookie-parser middleware here: requireAuth's extractCookie fallback parses
-// req.headers.cookie directly when req.cookies isn't populated.
+// Two probe routes: /probe (requireAuth->requireOrgAdmin->handler) and
+// /probe-bare (deliberately skips requireAuth, exercising requireOrgAdmin's
+// defensive branch). No cookie-parser: requireAuth's extractCookie fallback handles it.
 function buildProbeApp() {
   const app = express();
   app.get('/probe', requireAuth, requireOrgAdmin, (req, res) => {
@@ -183,10 +179,9 @@ test('GET /probe with admin session -> 200 and pinned least-data currentUser', a
   assert.equal(body.currentUser.org_slug, org.slug);
 });
 
-// --- Case 4: stale session (user deleted post-mint) -> 401 'session no longer valid'.
-// JWTs are self-contained (server/auth.js::verifySession does not re-query users),
-// so the cookie still verifies after DELETE FROM users, and loadCurrentUser
-// returns null, exercising the stale-session branch.
+// --- Case 4: stale session (user deleted post-mint) -> 401. JWTs are
+// self-contained (verifySession doesn't re-query users), so the cookie still
+// verifies after DELETE FROM users; loadCurrentUser returns null.
 
 test('GET /probe with stale session (user deleted) -> 401 session no longer valid', async () => {
   const { org, admin } = await seed('stale');

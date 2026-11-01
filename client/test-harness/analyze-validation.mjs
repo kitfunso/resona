@@ -1,6 +1,5 @@
-// Bland-Altman + error analysis for rPPG HR vs a reference device.
-// Reads the CSV exported by validate.html and reports agreement statistics.
-//
+// Bland-Altman + error analysis for rPPG HR vs a reference device. Reads the
+// CSV exported by validate.html and reports agreement statistics.
 // Usage: node client/test-harness/analyze-validation.mjs resona-validation.csv
 
 import fs from 'node:fs';

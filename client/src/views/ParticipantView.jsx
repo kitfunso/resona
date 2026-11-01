@@ -25,7 +25,6 @@ const css = `
     position: relative;
   }
 
-  /* ===== Top brand bar (replaces the old disclaimer-as-header) ===== */
   .r-chrome {
     position: fixed; top: 0; left: 0; right: 0;
     padding: calc(var(--s-3) + env(safe-area-inset-top, 0)) var(--s-4) var(--s-3);
@@ -87,7 +86,6 @@ const css = `
     border-bottom-color: var(--brass);
   }
 
-  /* ===== Hero block ===== */
   .r-hero {
     display: flex; flex-direction: column; align-items: center;
     gap: var(--s-1);
@@ -136,7 +134,6 @@ const css = `
   }
   @keyframes r-dot { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
 
-  /* ===== The instrument (blow circle) ===== */
   .r-instrument {
     position: relative;
     width: min(78vw, 320px);
@@ -244,7 +241,6 @@ const css = `
     margin-top: var(--s-1);
   }
 
-  /* ===== Hint, copy block under the instrument ===== */
   .r-hint {
     max-width: 28rem;
     font-size: var(--t-small);
@@ -258,7 +254,6 @@ const css = `
     font-weight: 600;
   }
 
-  /* ===== Level meter (during recording) ===== */
   .r-meter {
     width: min(85vw, 340px);
     margin-top: var(--s-3);
@@ -312,7 +307,6 @@ const css = `
     vertical-align: middle;
   }
 
-  /* ===== Back link ===== */
   .r-back {
     appearance: none; background: transparent; border: none;
     color: var(--bone-3);
@@ -327,7 +321,6 @@ const css = `
   }
   .r-back:hover { color: var(--brass); }
 
-  /* ===== Analyzing state ===== */
   .r-analyzing {
     display: flex; flex-direction: column; align-items: center;
     gap: var(--s-4);
@@ -369,7 +362,6 @@ const css = `
     color: var(--bone-3);
   }
 
-  /* ===== Error state ===== */
   .r-error {
     margin-top: var(--s-4);
     padding: var(--s-4) var(--s-4);
@@ -382,7 +374,6 @@ const css = `
     line-height: 1.5;
   }
 
-  /* ===== Mic arrow hint ===== */
   /* Hint container spans full bottom. Label is always centered above; the
      arrow is positioned absolutely at the platform-specific mic location. */
   .r-mic-hint {
@@ -401,12 +392,9 @@ const css = `
     width: fit-content;
     text-align: center;
   }
-  /* Arrow always points to the bottom-centre. iPhone mics are nominally
-     bottom-left of the charging port, but in practice the phone is held
-     close enough to the mouth that centre-aim captures the sound reliably
-     on every device. Matches real blowing technique better than spec-accurate
-     placement. margin-left of -14px (half the triangle's 28px base) instead
-     of transform: translateX so the bounce translateY animation survives. */
+  /* Arrow points bottom-centre, not the exact per-phone mic position: held
+     close, centre-aim reliably captures the blow. margin-left (not transform)
+     for the offset, since transform is already used by the bounce animation. */
   .r-mic-hint .r-mic-arrow {
     position: absolute;
     bottom: 0;
@@ -458,10 +446,9 @@ function useCss() {
   }
 }
 
-// Last-resort client-side fallback when the server can't be reached at all
-// (network down, ngrok dropped, fetch timed out). Mirrors the shape of the
-// server response so ResultsView renders normally. User still gets numbers +
-// a plain-English report, just from a local template rather than the LLM.
+// Last-resort client-side fallback when the server is unreachable at all
+// (network down, ngrok dropped, timeout). Mirrors the server response shape
+// so ResultsView renders normally, from a local template instead of the LLM.
 function buildLocalFallback(estimate, demographics, err) {
   const pp = Math.round(estimate.percentPredicted.fev1);
   const below = pp < 80;
@@ -511,11 +498,9 @@ function buildLocalFallback(estimate, demographics, err) {
   };
 }
 
-// Rough platform detection. We can reliably distinguish iOS / Android /
-// desktop from the UA but cannot identify the exact phone model. Apple
-// obfuscates Safari's UA and Android is too fragmented. So we point to the
-// most common mic location per platform and rely on the live mic level
-// meter during recording for the real feedback.
+// Rough platform detection (iOS/Android/desktop only, not exact phone model
+// -- Safari's UA is obfuscated and Android is too fragmented): points to the
+// most common mic location per platform; live mic-level meter is the real feedback.
 function detectPlatform() {
   if (typeof navigator === 'undefined') return 'desktop';
   const ua = navigator.userAgent || '';

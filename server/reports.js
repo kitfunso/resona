@@ -1,26 +1,7 @@
-// server/reports.js
-//
-// The deterministic (LLM-free) report layer for the analyze-* endpoints,
-// extracted verbatim from index.js. Holds everything that produces or
-// sanitises report content WITHOUT calling the model:
-//   - atsFlags / classifierFallback: blow effort-quality heuristics
-//   - personalReportFallback / neuroReportFallback / heartReportFallback:
-//     offline reports used when the LLM is unreachable or returns junk
-//   - scrubInternalTokens / scrubReport: belt-and-braces output sanitiser
-//
-// These are pure functions of their arguments (no DB, no app, no prompt
-// constants). scrubReport MUTATES its argument in place AND returns it;
-// callers rely on the in-place mutation (they call it statement-position),
-// so do not change it to return-only.
+// Deterministic (LLM-free) report layer for analyze-* endpoints: pure
+// functions only. scrubReport MUTATES its argument in place AND returns it.
 
-// ATS 2019 informational flags (feasible subset on phone audio).
-// - ATS says PEF should occur within 120ms of exhalation onset. Our peak-time
-//   can't reliably resolve sub-120ms because the envelope is low-pass filtered
-//   at 20Hz (50ms time constant). Use 500ms as the "clearly not a sharp burst"
-//   threshold instead, which rules out speech and talking.
-// - ATS says forced exhalation time ≥ 6s. Most phone blows end early; we flag
-//   below 3.5s as "short" rather than hard-rejecting, since 3-6s is usable
-//   for screening.
+// ATS-2019-informed thresholds, tuned to what phone audio can resolve; see docs/ARCHITECTURE.md.
 export function atsFlags(features) {
   const flags = [];
   if (features.peakTimeSec > 0.5) flags.push('peak_late');

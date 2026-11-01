@@ -17,10 +17,9 @@ let server;
 let baseUrl;
 
 test.before(async () => {
-  // Set BEFORE any requests fire so adminLimiter's skip predicate
-  // (() => process.env.NODE_ENV === 'test') evaluates true at request time.
-  // The limiter was created at module load with a stable function reference;
-  // skip is re-evaluated per request, so setting NODE_ENV here is sufficient.
+  // Set BEFORE any requests fire: adminLimiter's skip predicate
+  // (() => NODE_ENV === 'test') is re-evaluated per request, so this is
+  // sufficient even though the limiter itself was created at module load.
   process.env.NODE_ENV = 'test';
   await migrate();
   server = http.createServer(app);
@@ -132,9 +131,7 @@ async function getJson(path, cookie) {
   return { status: res.status, body: parsed, raw: body };
 }
 
-// ---------------------------------------------------------------------------
 // Case 1: Top-level suppression at the threshold (4 -> SUPPRESSED, 5 -> visible).
-// ---------------------------------------------------------------------------
 test('top-level suppression: n<MIN_GROUP suppresses; n>=MIN_GROUP returns', async () => {
   const { org, users } = await seedOrg('topn', { admins: 1, members: 5 });
   // Four check-ins from four distinct users.
@@ -150,9 +147,7 @@ test('top-level suppression: n<MIN_GROUP suppresses; n>=MIN_GROUP returns', asyn
   assert.equal(result.n, 5);
 });
 
-// ---------------------------------------------------------------------------
 // Case 1b (PRIV-1): suppression counts DISTINCT employees, not check-in rows.
-// ---------------------------------------------------------------------------
 test('distinct-employee suppression: one prolific user cannot clear the threshold', async () => {
   const { org, users } = await seedOrg('distinct', { admins: 1, members: 5 });
   // One employee checks in 6 times in the same band. Rows = 6 (>= MIN_GROUP)
@@ -170,9 +165,7 @@ test('distinct-employee suppression: one prolific user cannot clear the threshol
   assert.equal(normal.count, 5, 'bucket count is distinct employees');
 });
 
-// ---------------------------------------------------------------------------
 // Case 2: Per-bucket suppression (the round-0 CRIT).
-// ---------------------------------------------------------------------------
 test('per-bucket suppression: small bucket suppressed even when total>=MIN_GROUP', async () => {
   const { org, users } = await seedOrg('perbucket', { admins: 1, members: 20 });
   // 18 normal-range, 2 low-range. Total n=20, but low bucket has 2.
@@ -189,9 +182,7 @@ test('per-bucket suppression: small bucket suppressed even when total>=MIN_GROUP
   assert.equal(elevated.count, 0, 'empty bucket stays as 0 (non-identifying)');
 });
 
-// ---------------------------------------------------------------------------
 // Case 3: Cross-org isolation across all 3 routes.
-// ---------------------------------------------------------------------------
 test('cross-org isolation across overview/teams/team-overview', async () => {
   const a = await seedOrg('isoA', { admins: 1, members: 5, teamName: 'A-Team' });
   const b = await seedOrg('isoB', { admins: 1, members: 5, teamName: 'B-Team' });
@@ -220,9 +211,7 @@ test('cross-org isolation across overview/teams/team-overview', async () => {
   assert.deepEqual(fto.body, { error: 'not found' });
 });
 
-// ---------------------------------------------------------------------------
 // Case 4: Team-route 404 byte-identity (the round-0 CRIT).
-// ---------------------------------------------------------------------------
 test('team-route 404 byte-identical: foreign-org vs non-existent vs malformed', async () => {
   const a = await seedOrg('biA', { admins: 1, members: 5 });
   const b = await seedOrg('biB', { admins: 1, members: 5, teamName: 'B-Team' });
@@ -248,9 +237,7 @@ test('team-route 404 byte-identical: foreign-org vs non-existent vs malformed', 
   assert.equal(foreign.raw, malformed.raw);
 });
 
-// ---------------------------------------------------------------------------
 // Case 5: requireOrgAdmin gating on each new route (member -> 403 + audit).
-// ---------------------------------------------------------------------------
 test('member session hitting each aggregate route gets 403 with [admin-deny] audit', async () => {
   const { org, users, team } = await seedOrg('gate', { admins: 1, members: 1, teamName: 'Gate' });
   const member = users.find((u) => u.role === 'member');
@@ -277,9 +264,7 @@ test('member session hitting each aggregate route gets 403 with [admin-deny] aud
   }
 });
 
-// ---------------------------------------------------------------------------
 // Case 6: ?days input contract.
-// ---------------------------------------------------------------------------
 test('?days contract: reject malformed/out-of-range, default 30, no silent clamp', async () => {
   const { org, users } = await seedOrg('days', { admins: 1, members: 5 });
   for (let i = 0; i < 5; i += 1) await insertCheckIn(users[i + 1], org.id, 'heart', 70);
@@ -299,9 +284,7 @@ test('?days contract: reject malformed/out-of-range, default 30, no silent clamp
   }
 });
 
-// ---------------------------------------------------------------------------
 // Case 7: Band-edge stability (half-open intervals).
-// ---------------------------------------------------------------------------
 test('band-edge stability: hrBpm=60 -> normal; hrBpm=100 -> elevated', async () => {
   const { org, users } = await seedOrg('edge', { admins: 1, members: 5 });
   // 5 check-ins exactly at the low/normal boundary (60).
@@ -322,9 +305,7 @@ test('band-edge stability: hrBpm=60 -> normal; hrBpm=100 -> elevated', async () 
   assert.equal(normal.count, 0);
 });
 
-// ---------------------------------------------------------------------------
 // Case 8: Empty-org behaviour. total>=MIN_GROUP but zero check-ins -> distributions SUPPRESSED.
-// ---------------------------------------------------------------------------
 test('empty org: zero check-ins returns SUPPRESSED, never {n:0, buckets:[]}', async () => {
   const { org, users } = await seedOrg('empty', { admins: 1, members: 7 });
   const cookie = await adminCookie(users[0], org);
@@ -338,9 +319,7 @@ test('empty org: zero check-ins returns SUPPRESSED, never {n:0, buckets:[]}', as
   assert.equal(ov.body.participation.total, 8);
 });
 
-// ---------------------------------------------------------------------------
 // Case 9: orgParticipation active<MIN_GROUP path.
-// ---------------------------------------------------------------------------
 test('orgParticipation active<MIN_GROUP suppressed even when total>=MIN_GROUP', async () => {
   const { org, users } = await seedOrg('active', { admins: 1, members: 7 });
   // Only 3 of the 8 users check in.
@@ -353,9 +332,7 @@ test('orgParticipation active<MIN_GROUP suppressed even when total>=MIN_GROUP', 
   assert.equal(ov.body.participation.total, 8);
 });
 
-// ---------------------------------------------------------------------------
 // Case 10: JSONB path correctness + motion 'unknown' fallback.
-// ---------------------------------------------------------------------------
 test('JSONB paths: heart/breath/motion route to correct buckets, motion unknown fallback', async () => {
   const { org, users } = await seedOrg('paths', { admins: 1, members: 12 });
   // heart: 50/70/120 -> low/normal/elevated, 2 each + 1 extra = 5 normal
@@ -407,9 +384,7 @@ test('JSONB paths: heart/breath/motion route to correct buckets, motion unknown 
   assert.deepEqual(unknown.count, SUPPRESSED);
 });
 
-// ---------------------------------------------------------------------------
 // Case 11: Team scope correctness.
-// ---------------------------------------------------------------------------
 test('team scope: team-overview returns subset of org-wide', async () => {
   const { org, users, team } = await seedOrg('teamscope', { admins: 1, members: 10, teamName: 'T1' });
   // First 6 members are on the team and all check in 'normal'.
@@ -437,9 +412,7 @@ test('team scope: team-overview returns subset of org-wide', async () => {
   assert.equal(teamNormal.count, 6);
 });
 
-// ---------------------------------------------------------------------------
 // Case 12: Band-override rejection (route layer + structural).
-// ---------------------------------------------------------------------------
 test('band-override rejection: extra query params do not affect bucketing', async () => {
   const { org, users } = await seedOrg('override', { admins: 1, members: 5 });
   for (let i = 0; i < 5; i += 1) await insertCheckIn(users[i + 1], org.id, 'heart', 70);
@@ -468,9 +441,7 @@ test('band-override rejection: extra query params do not affect bucketing', asyn
   assert.deepEqual(labels, ['elevated', 'low', 'normal'], 'no override labels reached the output');
 });
 
-// ---------------------------------------------------------------------------
 // Case 13a: admin-read audit line on success path (Art 5(2) accountability).
-// ---------------------------------------------------------------------------
 test('successful admin reads emit [admin-read] audit lines', async () => {
   const { org, users } = await seedOrg('audit', { admins: 1, members: 5 });
   for (let i = 0; i < 5; i += 1) await insertCheckIn(users[i + 1], org.id, 'heart', 70);
@@ -495,9 +466,7 @@ test('successful admin reads emit [admin-read] audit lines', async () => {
   }
 });
 
-// ---------------------------------------------------------------------------
 // Case 13b: 404 byte-identity holds when ?days is also malformed.
-// ---------------------------------------------------------------------------
 test('team-route 404 holds byte-identity under malformed ?days (parseDays runs first)', async () => {
   const a = await seedOrg('idA', { admins: 1, members: 5 });
   const b = await seedOrg('idB', { admins: 1, members: 5, teamName: 'B-Team' });
@@ -522,9 +491,7 @@ test('team-route 404 holds byte-identity under malformed ?days (parseDays runs f
   assert.equal(foreign.raw, malformed.raw);
 });
 
-// ---------------------------------------------------------------------------
 // Case 14: BANDS export is deeply frozen (cannot mutate at runtime).
-// ---------------------------------------------------------------------------
 test('BANDS is deeply frozen', () => {
   assert.ok(Object.isFrozen(BANDS));
   assert.ok(Object.isFrozen(BANDS.heart));

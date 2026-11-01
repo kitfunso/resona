@@ -1,11 +1,6 @@
-// Heart-rate and heart-rate-variability extraction from per-frame RGB samples.
-// Pipeline:
-//   1. Resample timestamped RGB to a uniform 30 Hz grid.
-//   2. Run POS on each ROI, average the resulting pulse signals.
-//   3. Hann-window + FFT, peak in 0.7-4 Hz, parabolic interp -> hrBpm.
-//   4. Frequency-domain bandpass + IFFT -> filtered trace.
-//   5. Peak-detect with refractory window -> RR intervals -> RMSSD, SDNN.
-//   6. Quality grade from SNR, frame count, beat count, agreement.
+// Heart-rate / HRV extraction from per-frame RGB: resample to 30Hz, POS per
+// ROI, Hann+FFT for hrBpm, frequency-domain bandpass+IFFT, peak-detect for
+// RR/RMSSD/SDNN, then a quality grade from SNR, frame/beat count, agreement.
 
 import { computePosSignal } from './pos.js';
 
@@ -124,12 +119,9 @@ export function extractHeartFeatures({ samples, durationSec }) {
   // FFT setup.
   const N = nextPow2(n);
 
-  // --- Pass 1: Hann-windowed FFT for spectral HR estimation.
-  // The Hann window reduces spectral leakage, giving a cleaner peak in the
-  // frequency domain. Do NOT reuse these coefficients for the IFFT bandpass
-  // below — the Hann weighting would taper the reconstructed signal to near
-  // zero at both ends, causing the peak-detector to miss beats in the first
-  // and last ~5 seconds of the window.
+  // Pass 1: Hann-windowed FFT for HR estimation. Do NOT reuse these
+  // coefficients for the IFFT bandpass below -- Hann tapering would zero the
+  // reconstructed signal's ends, causing the peak-detector to miss edge beats.
   const re = new Float32Array(N);
   const im = new Float32Array(N);
   for (let i = 0; i < n; i++) re[i] = pulse[i];
@@ -192,10 +184,8 @@ export function extractHeartFeatures({ samples, durationSec }) {
     if (peakDominance < PEAK_DOMINANCE_MIN) reasons.push('ambiguous_peak');
   }
 
-  // --- Pass 2: Unwindowed FFT for frequency-domain bandpass + IFFT.
-  // Using the unwindowed transform ensures full-amplitude reconstruction
-  // across the entire signal length, so the peak-detector sees beats uniformly
-  // from start to end rather than only in the centre of the window.
+  // Pass 2 (unwindowed FFT): full-amplitude reconstruction across the whole
+  // signal, so the peak-detector sees beats uniformly, not just window-centred.
   const reU = new Float32Array(N);
   const imU = new Float32Array(N);
   for (let i = 0; i < n; i++) reU[i] = pulse[i];
@@ -236,10 +226,9 @@ export function extractHeartFeatures({ samples, durationSec }) {
     const ms = (peaks[i] - peaks[i - 1]) * (1000 / TARGET_FPS);
     if (ms >= 250 && ms <= 2000) rr.push(ms);
   }
-  // --- HRV (RMSSD / SDNN) from beat intervals. This is the LEAST reliable output:
-  // beat-to-beat timing from phone video is easily corrupted, so HRV must NEVER
-  // veto the heart rate. Compute it, but only expose it when physiologically
-  // plausible; otherwise mark it unavailable (an info flag, not an HR gate).
+  // HRV (RMSSD/SDNN) is the LEAST reliable output -- must NEVER veto the
+  // heart rate. Compute it, but only expose when physiologically plausible;
+  // otherwise mark unavailable (an info flag, not an HR gate).
   let hrvRmssdMs = null;
   let sdnnMs = null;
   let hrvOk = false;

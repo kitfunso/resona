@@ -158,8 +158,6 @@ function heartPayload(headline) {
   };
 }
 
-// 1. Auth gating -------------------------------------------------------------
-
 test('GET /api/me/check-ins without cookie -> 401', async () => {
   const res = await authedReq('/api/me/check-ins', { cookie: false });
   assert.equal(res.status, 401);
@@ -172,8 +170,6 @@ test('GET /api/me/check-ins with tampered cookie -> 401', async () => {
   assert.equal(res.status, 401);
 });
 
-// 2. Empty -------------------------------------------------------------------
-
 test('GET /api/me/check-ins with zero rows -> empty list, default limit, not truncated', async () => {
   const { userA, orgA } = await seed('empty');
   const res = await authedReq('/api/me/check-ins', { userId: userA.id, orgId: orgA.id });
@@ -181,8 +177,6 @@ test('GET /api/me/check-ins with zero rows -> empty list, default limit, not tru
   const body = await res.json();
   assert.deepEqual(body, { checkIns: [], limit: 50, truncated: false });
 });
-
-// 3. Populated allowlist -----------------------------------------------------
 
 test('GET /api/me/check-ins populated -> each row carries exactly the four allowlisted keys', async () => {
   const { userA, orgA } = await seed('allowlist');
@@ -208,8 +202,6 @@ test('GET /api/me/check-ins populated -> each row carries exactly the four allow
   }
 });
 
-// 4. Negative-assertion shape ------------------------------------------------
-
 test('GET /api/me/check-ins response body never contains raw payload field names or classification tokens', async () => {
   const { userA, orgA } = await seed('negative');
   // Seed one of each kind so all three CASE arms of the SQL are exercised
@@ -222,12 +214,9 @@ test('GET /api/me/check-ins response body never contains raw payload field names
   assert.equal(res.status, 200);
   const raw = await res.text();
 
-  // Substrings that target raw check_ins.payload sub-keys and classification
-  // tokens. Quoted-and-colon-anchored (e.g. '"fev1":') so a future headline
-  // containing the bare letters cannot trigger a false positive. The bare
-  // discriminator '"kind":"heart"' is allowed in the response; '"heart"'
-  // would collide with it, so we target the raw payload.heart object via its
-  // distinct sentinel keys ('"hrBpm":' / '"hrvRmssd":' / '"quality":') instead.
+  // Quoted-and-colon-anchored substrings (e.g. '"fev1":') so a future headline
+  // containing the bare letters can't false-positive; targets payload.heart's
+  // distinct sentinel keys instead of '"heart"', which collides with the kind discriminator.
   const forbiddenSubstrings = [
     '"features":',
     '"atsFlags":',
@@ -266,8 +255,6 @@ test('GET /api/me/check-ins response body never contains raw payload field names
   }
 });
 
-// 5. Per-kind headline -------------------------------------------------------
-
 test('GET /api/me/check-ins maps headline per-kind: breath/motion/heart', async () => {
   const { userA, orgA } = await seed('headline');
   // Use distinct createdAt values so the order is deterministic; newest first.
@@ -302,8 +289,6 @@ test('GET /api/me/check-ins maps headline per-kind: breath/motion/heart', async 
   assert.equal(byKind.motion, 'MOTION_HEAD');
   assert.equal(byKind.heart, 'HEART_HEAD');
 });
-
-// 6. Cross-user isolation ----------------------------------------------------
 
 test('GET /api/me/check-ins never returns rows belonging to another user (different orgs)', async () => {
   const { userA, userB, orgA, orgB } = await seed('isolation-cross-org');
@@ -379,8 +364,6 @@ test('GET /api/me/check-ins never returns rows belonging to another user in the 
   }
 });
 
-// 7. Limit clamping ----------------------------------------------------------
-
 test('GET /api/me/check-ins limit clamping covers the four invalid inputs and the over-cap case', async () => {
   const { userA, orgA } = await seed('limit-clamp');
   // Seed 5 rows so we can also see the body length matches expectations
@@ -435,8 +418,6 @@ test('GET /api/me/check-ins limit clamping covers the four invalid inputs and th
   assert.equal(bTrunc.checkIns.length, 3);
   assert.equal(bTrunc.truncated, true);
 });
-
-// 8. Order -------------------------------------------------------------------
 
 test('GET /api/me/check-ins returns rows newest-first', async () => {
   const { userA, orgA } = await seed('order');

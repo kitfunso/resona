@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# scripts/test-db-down.sh
-#
-# Stop the test Postgres container and clear its volumes. Use this when
-# you want a clean slate for the next test run or to free the port.
+# scripts/test-db-down.sh -- stops the test Postgres container and clears its
+# volumes. Use this for a clean slate before the next test run, or to free
+# the port.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -1,15 +1,6 @@
-// POS (Plane-Orthogonal-to-Skin) algorithm from Wang et al., IEEE TBE 2017.
-// Input: per-frame mean R, G, B channels for one ROI, sampled at a uniform fps.
-// Output: a 1D pulse signal (Float32Array, same length as input). Downstream
-// code FFTs this signal to find the heart rate.
-//
-// The algorithm normalises each channel by its own rolling 1.6-second mean
-// (kills lighting drift), then projects onto two skin-orthogonal axes using
-// the Wang 2017 projection matrix P:
-//   X =  0*R_n + 1*G_n - 1*B_n  (= G_n - B_n)
-//   Y = -2*R_n + 1*G_n + 1*B_n
-// and combines them as S = X + alpha*Y, with alpha = std(X)/std(Y) per window.
-// The per-window outputs are overlap-added into a final signal.
+// POS (Plane-Orthogonal-to-Skin) rPPG algorithm, Wang et al. IEEE TBE 2017.
+// Normalises R/G/B by a 1.6s rolling mean, projects onto skin-orthogonal axes,
+// combines as X+alpha*Y (alpha=std(X)/std(Y)); derivation in docs/ARCHITECTURE.md.
 
 export function computePosSignal({ r, g, b, fps = 30, windowSec = 1.6 }) {
   if (!(r && g && b) || r.length !== g.length || g.length !== b.length) {
@@ -47,9 +38,6 @@ export function computePosSignal({ r, g, b, fps = 30, windowSec = 1.6 }) {
       bN[i] = b[start + i] / bMean;
     }
 
-    // Project onto skin-orthogonal axes using Wang 2017 matrix P:
-    //   P = [[0, 1, -1],   => X = G_n - B_n
-    //        [-2, 1, 1]]   => Y = -2*R_n + G_n + B_n
     let xSum = 0, ySum = 0;
     const x = new Float32Array(w);
     const y = new Float32Array(w);
@@ -62,7 +50,6 @@ export function computePosSignal({ r, g, b, fps = 30, windowSec = 1.6 }) {
     const xMean = xSum / w;
     const yMean = ySum / w;
 
-    // alpha = std(X) / std(Y).
     let xVar = 0, yVar = 0;
     for (let i = 0; i < w; i++) {
       const dx = x[i] - xMean;

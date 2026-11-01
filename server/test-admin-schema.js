@@ -7,8 +7,6 @@ test.before(async () => {
   await migrate();
 });
 
-// users.role -----------------------------------------------------------------
-
 test('users.role column: text NOT NULL DEFAULT \'member\'', async () => {
   const { rows } = await pool.query(`
     SELECT column_name, data_type, is_nullable, column_default
@@ -55,8 +53,6 @@ test('users has UNIQUE(id, org_id) constraint', async () => {
   const match = rows.find((r) => r.cols === 'id,org_id');
   assert.ok(match, 'UNIQUE(id, org_id) on users missing');
 });
-
-// teams ----------------------------------------------------------------------
 
 test('teams table has the expected columns and types', async () => {
   const { rows } = await pool.query(`
@@ -149,8 +145,6 @@ test('teams.org_id FK to orgs(id) with CASCADE delete', async () => {
   assert.equal(rows[0].delete_rule, 'CASCADE');
 });
 
-// team_memberships -----------------------------------------------------------
-
 test('team_memberships has user_id, team_id, org_id (NOT NULL), created_at', async () => {
   const { rows } = await pool.query(`
     SELECT column_name, data_type, is_nullable
@@ -185,13 +179,9 @@ test('team_memberships PK is (user_id, team_id)', async () => {
 });
 
 test('team_memberships has two composite FKs, both CASCADE on delete', async () => {
-  // For each FK on team_memberships, gather the column tuple and the
-  // referenced table. We expect:
-  //   (user_id, org_id) -> users(id, org_id)
-  //   (team_id, org_id) -> teams(id, org_id)
-  // Both with delete_rule = CASCADE.
-  // Two queries, joined in JS, to avoid the row-product trap that you get
-  // joining fkcu and kcu on different constraint names in one SELECT.
+  // Expect (user_id,org_id)->users(id,org_id) and (team_id,org_id)->teams(id,org_id),
+  // both CASCADE. Two queries joined in JS -- one SELECT joining fkcu/kcu on
+  // different constraint names hits a row-product trap.
   const { rows: fkRows } = await pool.query(`
     SELECT rc.constraint_name,
            rc.delete_rule,
@@ -230,8 +220,6 @@ test('team_memberships has two composite FKs, both CASCADE on delete', async () 
   assert.equal(await refTable(userFk.unique_constraint_name), 'users');
   assert.equal(await refTable(teamFk.unique_constraint_name), 'teams');
 });
-
-// role_grants ----------------------------------------------------------------
 
 test('role_grants table has expected columns', async () => {
   const { rows } = await pool.query(`

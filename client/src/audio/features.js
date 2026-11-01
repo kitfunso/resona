@@ -1,10 +1,6 @@
-// Feature extraction from a forced-exhalation PCM buffer.
-// Based on SpiroSmart (Goel et al., UbiComp 2012):
-//   - Envelope via rectified + low-pass (approximates |Hilbert transform|)
-//   - Peak envelope amplitude
-//   - Envelope decay time constant (tau) via exponential fit on the decay tail
-//   - RMS energy
-//   - First formant frequency via FFT peak-picking on the loud segment
+// Forced-exhalation feature extraction, based on SpiroSmart (Goel et al.,
+// UbiComp 2012): rectified+low-pass envelope, peak amplitude, decay tau,
+// RMS energy, first-formant via FFT peak-pick. Detail in docs/ARCHITECTURE.md.
 
 const TWO_PI = 2 * Math.PI;
 
@@ -193,10 +189,9 @@ export function extractFeatures(pcm, sampleRate) {
   const formantHz = firstFormantHz(pcm, sampleRate);
   const durationSec = pcm.length / sampleRate;
 
-  // AGC-proof shape features: time envelope spends above fractions of its peak.
-  // Strong forced exhalation starts high and tapers (real physiology), so the
-  // 10% band captures the full tapered tail. The 50/20 bands are retained as
-  // secondary signals and for debug visibility.
+  // AGC-proof shape features (time above fractions of peak). Strong exhalation
+  // starts high and tapers (real physiology), so the 10% band captures the
+  // full tail; 50/20 bands are secondary signals kept for debug visibility.
   const activeSec50 = activeDurationAboveFraction(envelope, sampleRate, peakEnv, 0.5);
   const activeSec20 = activeDurationAboveFraction(envelope, sampleRate, peakEnv, 0.2);
   const activeSec10 = activeDurationAboveFraction(envelope, sampleRate, peakEnv, 0.1);

@@ -1,12 +1,6 @@
-// Gait analysis from accelerometer samples during a short walk.
-//
-// Participant puts phone in trouser/jacket pocket and walks ~10 steps.
-// We detect steps via peak detection on the vertical (gravity-dominant)
-// component of acceleration. Output: stride times, cadence, variance,
-// rough symmetry.
-//
-// Screening only. Real gait analysis needs ground truth from wearables or
-// pressure mats. This is a demo-grade approximation.
+// Gait analysis from a ~10-step pocketed-phone walk: peak-detect the vertical
+// (gravity-dominant) acceleration component for stride times, cadence,
+// variance, symmetry. Screening only -- demo-grade, not wearable/mat-accurate.
 
 function mean(xs) {
   if (xs.length === 0) return 0;

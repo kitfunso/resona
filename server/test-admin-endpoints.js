@@ -12,10 +12,9 @@ let server;
 let baseUrl;
 
 test.before(async () => {
-  // Disable adminLimiter for the suite: it hits 127.0.0.1 from one process at
-  // high throughput. The limiter's skip predicate is () => NODE_ENV === 'test',
-  // re-evaluated per request, so setting it here is sufficient (mirrors
-  // test-aggregates.js). Production traffic never sets NODE_ENV=test.
+  // adminLimiter's skip predicate (() => NODE_ENV === 'test') is re-evaluated
+  // per request, so disabling it here is sufficient (mirrors test-aggregates.js).
+  // Production traffic never sets NODE_ENV=test.
   process.env.NODE_ENV = 'test';
   assert.ok(ADMIN_TOKEN && ADMIN_TOKEN.length >= 32, 'ADMIN_TOKEN must be set with length >= 32 for these tests');
   await migrate();
@@ -124,8 +123,6 @@ async function seed(suffix) {
   };
 }
 
-// Auth gating (SEC-1: /role is session-RBAC, not ADMIN_TOKEN) ----------------
-
 test('POST /api/admin/users/:id/role without a session -> 401', async () => {
   const { a2 } = await seed('auth-missing');
   const res = await sreq('POST', `/api/admin/users/${a2.id}/role`, { body: { role: 'admin' } });
@@ -151,8 +148,6 @@ test('POST /api/admin/users/:id/role with the ADMIN_TOKEN (no session) -> 401', 
   });
   assert.equal(res.status, 401);
 });
-
-// POST /api/admin/users/:id/role --------------------------------------------
 
 test('POST /role with invalid role -> 400', async () => {
   const { orgA, a1, a2 } = await seed('role-invalid');
@@ -323,8 +318,6 @@ test('POST /api/admin/users without role defaults to member (no audit row)', asy
   await pool.query('DELETE FROM users WHERE id = $1', [user.id]);
 });
 
-// POST /api/admin/teams ------------------------------------------------------
-
 test('POST /teams with invalid name -> 400', async () => {
   const { orgA } = await seed('team-invalid');
   // Empty string fails the length CHECK; unicode emoji fails the regex CHECK.
@@ -368,8 +361,6 @@ test('POST /teams duplicate name (case-insensitive) -> 409', async () => {
   const body = await r2.json();
   assert.equal(body.error, 'team name already exists in this org');
 });
-
-// POST /api/admin/teams/:id/members -----------------------------------------
 
 test('POST /teams/:id/members happy path -> 201, org_id matches', async () => {
   const { orgA, a1 } = await seed('members-happy');
@@ -426,12 +417,9 @@ test('POST /teams/:id/members duplicate -> 409', async () => {
   assert.equal(body.error, 'already a member');
 });
 
-// Schema-level cross-org regression test ------------------------------------
-// This is THE gate for the eng-critic finding. The handler refuses cross-org
-// adds with a friendly 400, but the structural fix is the composite FK on
-// team_memberships referencing (users.id, org_id) and (teams.id, org_id). A
-// raw INSERT that bypasses the handler with a mismatched (user_id, org_id)
-// has no valid (id, org_id) target in users and must error with 23503.
+// THE gate for the eng-critic finding: handler-level 400 is UX, but the real
+// fix is the composite FK on team_memberships (users.id,org_id)+(teams.id,org_id).
+// A raw INSERT bypassing the handler with mismatched org_id must 23503.
 
 test('schema rejects a cross-org team_memberships INSERT with code 23503', async () => {
   const { orgA, a1 } = await seed('schema-cross');
