@@ -16,11 +16,11 @@ For Keith to narrate. Target: under 90 seconds, including the short captures.
 
 ## Live demo
 
-> Let me show you. Before I start, I choose to share my derived numbers for reports. Then I record a breath on my phone.
+> Let me show you. Reports are on by default, and I can switch them off before recording. I record a breath on my phone.
 
-**On screen:** Open the app, opt in to reports, record a breath and show the automatic report. Follow the on-screen prompts to the motion and heart modules; cut to the walking capture and its cadence reading. Shorten capture footage as needed to stay within the time limit.
+**On screen:** Open the app, point out the report setting, record a breath and show the automatic report. Move to motion, show the stillness report, then cut to the walking capture and its cadence reading. Shorten capture footage as needed to stay within the time limit.
 
-> Once I opt in, the derived numbers go to OpenAI and a report appears after each completed module. A Codex model selects a short recording tip from fixed options. Raw audio, video and motion stay on my phone.
+> With reports on, derived numbers go to OpenAI and a report appears after each capture, including stillness. A Codex model selects a short recording tip from fixed options. Raw audio, video and motion stay on my phone.
 
 ## Close
 

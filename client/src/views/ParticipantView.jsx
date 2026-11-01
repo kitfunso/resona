@@ -513,10 +513,11 @@ export default function ParticipantView({ onSignOut }) {
   const [level, setLevel] = useState(0);
   const [estimate, setEstimate] = useState(null);
   const [analysis, setAnalysis] = useState(null);
+  const [reportFailed, setReportFailed] = useState(false);
   const [error, setError] = useState(null);
   const [arming, setArming] = useState(false);
   const [codexAvailable, setCodexAvailable] = useState(false);
-  const [reportConsent, setReportConsent] = useState(false);
+  const [reportConsent, setReportConsent] = useState(true);
   const [completed, setCompleted] = useState({ breath: false, neuro: false, heart: false });
   const captureRef = useRef(null);
 
@@ -554,6 +555,7 @@ export default function ParticipantView({ onSignOut }) {
     setError(null);
     setEstimate(null);
     setAnalysis(null);
+    setReportFailed(false);
     setLevel(0);
     const controller = new AbortController();
     captureRef.current = controller;
@@ -616,6 +618,7 @@ export default function ParticipantView({ onSignOut }) {
           if (result?.personalReport?.source !== 'codex') throw new Error('Codex report unavailable');
         } catch {
           result = buildLocalFallback(true);
+          setReportFailed(true);
         }
       }
       if (controller.signal.aborted) return;
@@ -634,8 +637,29 @@ export default function ParticipantView({ onSignOut }) {
   function resetToBlow() {
     setEstimate(null);
     setAnalysis(null);
+    setReportFailed(false);
     setError(null);
     setStage('blow');
+  }
+
+  async function retryBreathReport() {
+    const controller = new AbortController();
+    captureRef.current = controller;
+    setStage('analyzing');
+    setReportFailed(false);
+    try {
+      const result = await analyzeBlow({ features: estimate });
+      if (result?.personalReport?.source !== 'codex') throw new Error('Codex report unavailable');
+      if (!controller.signal.aborted) setAnalysis(result);
+    } catch {
+      if (!controller.signal.aborted) {
+        setAnalysis(buildLocalFallback(true));
+        setReportFailed(true);
+      }
+    } finally {
+      if (!controller.signal.aborted) setStage('results');
+      if (captureRef.current === controller) captureRef.current = null;
+    }
   }
 
   async function handleSignOut() {
@@ -763,6 +787,7 @@ export default function ParticipantView({ onSignOut }) {
           estimate={estimate}
           analysis={analysis}
           completed={completed}
+          onRetryReport={reportFailed ? retryBreathReport : null}
           onRetry={resetToBlow}
           onStartOver={resetToBlow}
           onNeuro={() => setStage('neuro')}

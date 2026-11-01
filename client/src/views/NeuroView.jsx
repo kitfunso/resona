@@ -699,6 +699,9 @@ export default function NeuroView({ onBack, onHeart, onBreath, onComplete, codex
   const [report, setReport] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
+  const [stillnessReport, setStillnessReport] = useState(null);
+  const [stillnessLoading, setStillnessLoading] = useState(false);
+  const [stillnessError, setStillnessError] = useState(null);
   const [flash, setFlash] = useState(null); // 'go' | 'stop' | null
   const [soundDiag, setSoundDiag] = useState(null);
   const captureRef = useRef(null);
@@ -707,8 +710,8 @@ export default function NeuroView({ onBack, onHeart, onBreath, onComplete, codex
   const motionReportRef = useRef(null);
 
   useEffect(() => {
-    if (stage === 'tremor_done' && tremor) stillnessReportRef.current?.scrollIntoView?.({ block: 'start' });
-  }, [stage, tremor]);
+    if (stage === 'tremor_done' && (stillnessReport || stillnessLoading)) stillnessReportRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [stage, stillnessReport, stillnessLoading]);
 
   useEffect(() => {
     if (stage === 'gait_done' && report) motionReportRef.current?.scrollIntoView?.({ block: 'start' });
@@ -728,30 +731,51 @@ export default function NeuroView({ onBack, onHeart, onBreath, onComplete, codex
     };
   }, []);
 
-  async function fetchReport(currentTremor, currentGait, signal) {
-    setReportLoading(true);
-    setReport(null);
-    setReportError(null);
+  async function fetchReport(currentTremor, currentGait, signal, stillness = false) {
+    const updateLoading = stillness ? setStillnessLoading : setReportLoading;
+    const updateReport = stillness ? setStillnessReport : setReport;
+    const updateError = stillness ? setStillnessError : setReportError;
+    updateLoading(true);
+    updateReport(null);
+    updateError(null);
     try {
       const data = await analyzeNeuro({
         tremor: { dominantFrequencyHz: currentTremor?.dominantFrequencyHz ?? null, sampleRate: currentTremor?.sampleRate ?? null },
-        gait: { stepsDetected: currentGait?.stepsDetected ?? null, cadence: currentGait?.cadence ?? null, stridesCv: currentGait?.stridesCv ?? null, symmetryIndex: currentGait?.symmetryIndex ?? null },
+        gait: currentGait ? { stepsDetected: currentGait.stepsDetected ?? null, cadence: currentGait.cadence ?? null, stridesCv: currentGait.stridesCv ?? null, symmetryIndex: currentGait.symmetryIndex ?? null } : null,
       });
       if (data.report?.source !== 'codex') throw new Error('Report unavailable');
-      if (mountedRef.current && !signal.aborted) setReport(data.report);
+      if (mountedRef.current && !signal.aborted) updateReport(data.report);
     } catch {
       if (mountedRef.current && !signal.aborted) {
-        setReport({ headline: 'Your motion recording is ready.', interpretation: 'These experimental readings depend on your phone and how you move. They are not a medical assessment.', source: 'local' });
-        setReportError('The Codex model report is unavailable. Your readings are still shown on this device.');
+        updateReport({ headline: stillness ? 'Your stillness recording is ready.' : 'Your motion recording is ready.', interpretation: 'These experimental readings depend on your phone and how you move. They are not a medical assessment.', source: 'local' });
+        updateError('The Codex model report is unavailable. Your readings are still shown on this device.');
       }
     } finally {
-      if (mountedRef.current && !signal.aborted) setReportLoading(false);
+      if (mountedRef.current && captureRef.current?.signal === signal) {
+        if (signal.aborted) {
+          updateReport({ headline: stillness ? 'Your stillness recording is ready.' : 'Your motion recording is ready.', interpretation: 'These experimental readings depend on your phone and how you move. They are not a medical assessment.', source: 'local' });
+          updateError('The Codex model report was interrupted. Your readings are still shown on this device.');
+        }
+        updateLoading(false);
+      }
+    }
+  }
+
+  async function retryReport(stillness) {
+    const controller = new AbortController();
+    captureRef.current?.abort();
+    captureRef.current = controller;
+    try {
+      await fetchReport(tremor, stillness ? null : gait, controller.signal, stillness);
+    } finally {
+      if (captureRef.current === controller) captureRef.current = null;
     }
   }
 
   async function ensurePermissionAndRun(fn, returnStage = 'intro') {
     captureRef.current?.abort();
     setReportLoading(false);
+    setStillnessLoading(false);
     const controller = new AbortController();
     captureRef.current = controller;
     setError(null);
@@ -795,9 +819,12 @@ export default function NeuroView({ onBack, onHeart, onBreath, onComplete, codex
   }
 
   async function runTremor(signal) {
+    setTremor(null);
     setGait(null);
     setReport(null);
     setReportError(null);
+    setStillnessReport(null);
+    setStillnessError(null);
     setStage('tremor_prep');
     setPrepCount(PREP_SECONDS);
     const stopKeepalive = startAudioKeepalive();
@@ -814,6 +841,11 @@ export default function NeuroView({ onBack, onHeart, onBreath, onComplete, codex
     const result = analyseTremor(motion);
     setTremor(result);
     setStage('tremor_done');
+    if (reportConsent && codexAvailable) {
+      await fetchReport(result, null, signal, true);
+    } else {
+      setStillnessReport({ headline: 'Your stillness recording is ready.', interpretation: 'These experimental readings depend on your phone and how you hold it. They are not a medical assessment.', source: 'local' });
+    }
   }
 
   async function runGait(signal) {
@@ -957,14 +989,18 @@ export default function NeuroView({ onBack, onHeart, onBreath, onComplete, codex
               <span className="v">{tremor.sampleRate} Hz</span>
             </div>
             <div className="nv-report" role="status" ref={stillnessReportRef}>
-              <div className="nv-report-hd"><span className="k">Stillness report · local</span></div>
-              <p className="interp">Your stillness recording is complete. The values above describe this recording and are not a medical assessment. Continue with the walk to complete your motion report.</p>
+              <div className="nv-report-hd"><span className="k">Stillness report{stillnessReport ? ` · ${stillnessReport.source === 'codex' ? 'Codex model' : 'local report'}` : ''}</span></div>
+              {stillnessLoading && <p className="interp">Preparing your Codex model report…</p>}
+              {stillnessReport && <><p className="headline">{stillnessReport.headline}</p><p className="interp">{stillnessReport.interpretation}</p>{Array.isArray(stillnessReport.actions) && stillnessReport.actions.length > 0 && <ul className="nv-actions">{stillnessReport.actions.map((action, index) => <li className="nv-action" key={index}><span className="num">{String(index + 1).padStart(2, '0')}</span><div><span className="t">{action.title}</span><span className="d">{action.detail}</span></div></li>)}</ul>}</>}
+              {stillnessError && <p className="nv-error" role="alert">{stillnessError}</p>}
+              {stillnessError && stage === 'tremor_done' && <button className="nv-btn-ghost" disabled={stillnessLoading} onClick={() => retryReport(true)}>Retry Codex report</button>}
+              <p className="interp">Continue with the walk to complete your motion report.</p>
             </div>
             {(stage === 'tremor_done' || gaitState !== 'idle') && (
               <button
                 className="nv-btn-ghost"
                 onClick={() => ensurePermissionAndRun(runTremor)}
-                disabled={stage === 'gait_prep' || stage === 'gait_record'}
+                disabled={stillnessLoading || stage === 'gait_prep' || stage === 'gait_record'}
               >
                 Redo stillness test
               </button>
@@ -992,7 +1028,7 @@ export default function NeuroView({ onBack, onHeart, onBreath, onComplete, codex
           </p>
 
           {stage === 'tremor_done' && (
-            <button className="nv-btn" onClick={() => ensurePermissionAndRun(runGait, 'tremor_done')}>
+            <button className="nv-btn" disabled={stillnessLoading} onClick={() => ensurePermissionAndRun(runGait, 'tremor_done')}>
               <span>Start walk test</span>
               <span className="arrow">→</span>
             </button>
@@ -1102,6 +1138,7 @@ export default function NeuroView({ onBack, onHeart, onBreath, onComplete, codex
         </div>
       )}
       {reportError && <p className="nv-error" role="alert">{reportError}</p>}
+      {reportError && stage === 'gait_done' && <button className="nv-btn-ghost" disabled={reportLoading} onClick={() => retryReport(false)}>Retry Codex report</button>}
 
       {error && <div className="nv-error" role="alert">{error}</div>}
 

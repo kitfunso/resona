@@ -7,7 +7,7 @@ export default function ReportConsent({ available, consent, onChange }) {
         <input type="checkbox" checked={available && consent} disabled={!available} onChange={(event) => onChange(event.target.checked)} />
         <span>Send my numerical readings for automatic Codex reports</span>
       </label>
-      <p>{available ? 'Numerical readings go to our server and OpenAI and can be personal information. Successful reports and readings are saved with your account. OpenAI may retain safety monitoring logs. Raw audio, video and motion stay on your phone. Leave this unchecked for local-only readings.' : 'Codex reports are unavailable. Your readings stay on your phone.'}</p>
+      <p>{available ? 'Starting a recording sends your numerical readings to our server and OpenAI when this box is checked. These readings can be personal information. Successful reports and readings are saved with your account. OpenAI may retain safety monitoring logs. Raw audio, video and motion stay on your phone. Uncheck the box for local-only readings.' : 'Codex reports are unavailable. Your readings stay on your phone.'}</p>
     </div>
   );
 }

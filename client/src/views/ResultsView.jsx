@@ -455,7 +455,7 @@ function caseId() {
   return `RSN·${ddmm}·${hhmm}`;
 }
 
-export default function ResultsView({ estimate, analysis, completed, onRetry, onStartOver, onNeuro, onHeart, onHistory }) {
+export default function ResultsView({ estimate, analysis, completed, onRetry, onRetryReport, onStartOver, onNeuro, onHeart, onHistory }) {
   useCss();
   const [caseIdVal] = useState(caseId);
   const format = (value, decimals) => Number.isFinite(value) ? value.toFixed(decimals) : 'Unavailable';
@@ -520,6 +520,7 @@ export default function ResultsView({ estimate, analysis, completed, onRetry, on
               </ul>
             </>
           )}
+          {onRetryReport && <button className="rv-neuro-cta" onClick={onRetryReport}>Retry Codex report</button>}
         </div>
       )}
 

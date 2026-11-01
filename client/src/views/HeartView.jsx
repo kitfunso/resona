@@ -456,6 +456,13 @@ export default function HeartView({ onBack, onNeuro, onBreath, onComplete, codex
     }
   }
 
+  function retryReport() {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    fetchReport(classified, controller.signal);
+  }
+
   return (
     <div className="hv-stage">
       <div className="hv-head">
@@ -572,6 +579,7 @@ export default function HeartView({ onBack, onNeuro, onBreath, onComplete, codex
             </div>
           )}
           {reportError && <p className="hv-error" role="alert">{reportError}</p>}
+          {reportError && <button className="hv-btn-ghost" disabled={reportLoading} onClick={retryReport}>Retry Codex report</button>}
 
           {(onNeuro || onBreath) && <p className="hv-step-desc">Keep going: try your remaining modules.</p>}
           {onNeuro && <button className="hv-btn" onClick={onNeuro}><span>Try the Neuro screen</span><span>→</span></button>}
