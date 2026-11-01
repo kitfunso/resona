@@ -411,7 +411,8 @@ export default function HeartView({ onBack, onNeuro, onBreath, onComplete, codex
         else if (features.grade === 'fair') features.grade = 'poor';
       }
       const classifiedResult = {
-        hrBpm: features.hrBpm, hrvRmssdMs: features.hrvRmssdMs, sdnnMs: features.sdnnMs,
+        // HRV from phone video is unreliable, so it never leaves the device or reaches a report.
+        hrBpm: features.hrBpm, hrvRmssdMs: null, sdnnMs: null,
         beatCount: features.beatCount, durationSec: features.durationSec,
         quality: { grade: features.grade, reasons: features.reasons },
       };
