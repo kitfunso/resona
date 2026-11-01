@@ -206,6 +206,7 @@ export default function LoginView({ onSignedIn }) {
           <span className="lv-eyebrow">Resona</span>
           <h1 className="lv-title">Sign in</h1>
         </div>
+        <a href="/reset.html" style={{ color: 'var(--brass)', minHeight: 44, display: 'flex', alignItems: 'center' }}>Take a private reset</a>
         {stage === 'email' && (
           <>
             <form onSubmit={submitEmail}>

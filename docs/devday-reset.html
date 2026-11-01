@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Resona Reset | DevDay build plan</title>
+<style>
+body{margin:0;background:#12131a;color:#f4ece1;font:16px/1.65 Georgia,serif}main{max-width:960px;margin:auto;padding:48px 24px}h1{font-size:48px;line-height:1.1}h2{color:#c9a96e;margin-top:36px}p,li{max-width:80ch}a{color:#c9a96e}code{font:13px monospace}section{border-top:1px solid #303545;padding:10px 0}small{color:#b8ac94}.status{padding:12px 16px;background:#1a1c26;border-left:3px solid #c9a96e}table{border-collapse:collapse;width:100%;font-family:system-ui;font-size:14px}td,th{padding:12px;border:1px solid #303545;text-align:left;vertical-align:top}
+</style>
+<main>
+<small>DEV DAY EXCHANGE LONDON · 1 NOVEMBER 2026</small>
+<h1>Resona Reset</h1>
+<p>A private pause for people building, working or studying: check in, take a guided minute, then leave with one practical next step.</p>
+<p class="status">Discovery, plan, build and browser verification complete. Self-review and independent source review found no blocking issues. Local submission package prepared; narration, public preview and event submission remain.</p>
+<section><h2>Product and scope</h2>
+<p>The user chose to keep Resona's wellness focus and accepted a private wellbeing check-in ending with one practical next step. Existing Resona has authenticated Breath, Motion and Heart flows. Today adds a self-contained, public reset journey, accessible at <code>/reset.html</code>, using the existing React and Vite workspaces.</p>
+<p>Choose between reworking the sensor and account flows or adding a focused reset. Pick the reset: it gives a complete journey that judges can open immediately and finish without signing in, granting sensor access or entering personal details. The old app remains available at the root.</p>
+<p>Success: a visitor chooses how they feel and what they need, completes or explicitly skips a guided minute, records their own response, and saves a useful next step. No diagnosis, inferred health score, employer report or claim that the session improved their wellbeing.</p>
+<p>Personalisation is an explicit local rule table. No model runs in this feature. Codex's contribution is the new implementation, acceptance tests, review and demo preparation. No AI-generated advice claim will appear.</p>
+</section>
+<section><h2>Journey and state</h2>
+<ol>
+<li><strong>Check in:</strong> choose energy (low, steady, busy) and intention (focus, unwind, step away). Neither is selected by default. Native fieldsets and radio inputs; continue disabled until both are chosen.</li>
+<li><strong>Reset:</strong> a sixty-second visual breathing guide with comfortable, optional pacing. Start is explicit. Pause, resume, and finish early are always available. Tab hiding pauses the timer. Reduced-motion visitors receive the same textual guide with no scaling motion. Never instruct breath holding or forced inhalation.</li>
+<li><strong>Reflect:</strong> choose more settled, about the same, or less settled. No response is inferred. An early finish is labelled as such. Going back must preserve only the current in-memory selections.</li>
+<li><strong>Take away:</strong> show the actual before/after choices, completion status, and one concrete next step determined by the choices. Honest copy for unchanged or worse responses. Download a plain-text card, or restart and clear the session.</li>
+</ol>
+<p>No server call, analytics, browser storage, sensor request, free-text health input, or background persistence. Reloading clears the check-in. Downloads occur only after the visitor clicks save. External font requests are already used by Resona; the feature remains usable on fallback fonts if those fail.</p>
+</section>
+<section><h2>Architecture and files</h2>
+<p>New entry <code>client/reset.html</code> imports <code>client/src/reset/main.jsx</code>. A small <code>ResetApp.jsx</code> owns session state. <code>reset.js</code> owns the rule table, input checks, timer arithmetic and plain-text export. <code>reset.css</code> owns scoped styling. New tests cover actual invalid inputs, timing boundaries, pause/resume, and export semantics.</p>
+<p>One surgical edit to <code>client/vite.config.js</code> adds the build entry. Add a discoverable reset link to the existing login screen. The original <code>App.jsx</code>, auth, sensor pipelines, edge handlers and database remain outside this change. Before editing either existing file, read its current contents and consumers.</p>
+<p>Use the already installed React and Vite versions. No dependency, API, migration, service, deployment or paid call is needed. Existing unfinished work at <code>C:/Users/skf_s/resona</code> is excluded: use the separate worktree in this task's workspace, branch <code>feat/devday-reset</code>, starting at <code>e35725c</code>.</p>
+</section>
+<section><h2>Design</h2>
+<p>Reuse Resona's warm ink, cream and brass palette, Young Serif headings, Manrope body and monospace instrumentation. Reference the existing <code>main.jsx</code> tokens, <code>LoginView.jsx</code> card and <code>ResultsView.jsx</code> action layout. The new memorable detail is a quiet breathing dial: it expands gently during inhale and settles during exhale, with static text in reduced-motion mode.</p>
+<p>Desktop uses generous editorial spacing and a narrow active card. Mobile stacks naturally with touch targets of at least 44px. Use one main heading, clear focus indicators, native radio controls, sensible heading focus after stage changes, a visible countdown, and no per-second screen-reader announcements. Timer instructions announce only phase changes. Controls remain visible at narrow widths and browser zoom.</p>
+</section>
+<section><h2>Stages and closing checks</h2>
+<table><tr><th>Stage</th><th>Closing check</th><th>State</th></tr>
+<tr><td>Discover</td><td>Read local and remote project rules, README, current source, git state and event page. User confirms wellness focus. Search source for an existing reset journey.</td><td>Done</td></tr>
+<tr><td>Plan</td><td>Independent reviewer read the full plan, rules and source. Passed; the separate entry must remain independent of the authenticated main.jsx.</td><td>Done</td></tr>
+<tr><td>Build</td><td>New journey, rule table, elapsed-time dial, download, setup and credit docs implemented. Self-review read all new source and both existing-file diffs.</td><td>Done</td></tr>
+<tr><td>Verify</td><td>35 client tests and production build pass. Real full-minute journey, pause/resume, keyboard controls, same/worse response, early finish, download and restart passed. No overflow at 320, 768 or 1440px. Reduced-motion animation is none. Tab-hide branch used a simulated visibilitychange event.</td><td>Done, with device rehearsal limit</td></tr>
+<tr><td>Submission</td><td>Setup, attribution, narration script and a 78.48-second silent MP4 prepared. Keith chose to record narration himself. Publication and event submission have not happened.</td><td>Partial: local package ready</td></tr>
+</table>
+<p>Server and database suites are outside this feature's source changes; no claim about them is made. Deployment, a public branch/PR and event submission require their own final action after the local result is reviewable.</p>
+</section>
+<section><h2>Acceptance details</h2>
+<ul>
+<li>Normal journey: choose busy + focus; start; finish sixty active seconds; choose same; result offers one focus action and reports the actual unchanged response.</li>
+<li>Paused time does not count; resuming retains remaining time; hiding the tab pauses; reset completion cannot fire twice. A late interval callback computes from elapsed time rather than counting ticks.</li>
+<li>Early finish never says a full minute was completed. Less-settled response shows neutral copy and suggests stopping rather than trying harder.</li>
+<li>Invalid energy, intention or reflection values are rejected by the pure functions. Test every valid choice mapping and unknown values.</li>
+<li>Downloading includes selected labels and the shown action; no hidden profile, random health score or old session values. Restart clears all choices.</li>
+<li>At 320px, 768px and 1440px there is no horizontal overflow. Keyboard can complete the whole flow. Reduced-motion mode has no dial scaling.</li>
+<li>The built <code>/reset.html</code> opens without an API or login. Root still builds. No check-in data is sent over the network or stored.</li>
+</ul>
+</section>
+<section><h2>Attribution and sources</h2>
+<p>Existing code: <a href="https://github.com/kitfunso/resona">kitfunso/resona</a>, starting commit e35725c. Reused: workspace tooling, branding, design language, fonts and original app. New work: reset journey, rule table, timer, export and acceptance coverage. Existing medical-signal estimates are not part of today's demo.</p>
+<p><a href="https://luma.com/dde-ldn-hack">Event schedule</a> confirms submissions close at 17:00 London time. The <a href="https://warp-peach-ef6.notion.site">Notion Builders Guide</a> was subsequently read in full through the browser. It permits existing ideas, libraries, APIs, templates and boilerplate, but excludes previously completed projects as submissions. Today's new entry is separated and credited accordingly.</p>
+<p><a href="https://developers.openai.com/codex/quickstart">Codex quickstart</a> and <a href="https://developers.openai.com/cookbook/topic/codex">Codex Cookbook</a> are documentation references. This feature does not require a runtime OpenAI integration.</p>
+</section>
+<section><h2>Evidence and repeatable checks</h2>
+<p>From the repository root: <code>npm test --workspace=client</code> regenerates the test result; <code>npm run build --workspace=client</code> regenerates the production artifacts. There is no lint command in the client package scripts. <code>git diff --check</code> checks patch whitespace.</p>
+<p>Browser checks used the production build at <code>http://127.0.0.1:5188/reset.html</code>. The first full-minute check had an incorrect exact-text locator because the status contains a decorative clock symbol. Reading the rendered status established that completion was correct; the corrected assertion and downloaded card passed. This was a test-selector issue.</p>
+<p>Observed resource requests were static JavaScript, CSS, fonts and an initial missing favicon. A local SVG monogram now supplies the icon. Browser local and session storage were empty. No check-in API requests occurred.</p>
+<p>Readiness limits: no live Safari or real phone backgrounding check; no server or database-suite claim; no public deployment yet. Suggestions are local rules. No runtime OpenAI API was added or billed.</p>
+<p>Final clean page load: no browser console errors or page exceptions. Requests were only static GETs and fonts. No check-in API traffic or browser storage. The original product's server-dependent root is outside today's static demo.</p>
+<p>The silent demo is H.264 at 1440 by 900, lasting 78.48 seconds. Regenerate its duration: <code>ffprobe -v error -show_entries format=duration -of json submission/devday-reset/resona-reset-demo.mp4</code>. The full guided minute plays in real time. <a href="../submission/devday-reset/resona-reset-demo.mp4">Open the video</a>.</p>
+<p><a href="reset-desktop.png">Desktop screenshot</a> · <a href="reset-mobile.png">Phone screenshot</a> · <a href="reset-result.png">Result screenshot</a> · <a href="reset-sample.txt">Downloaded synthetic card</a> · <a href="../submission/devday-reset/README.md">Setup, credits and narration</a></p>
+<p>No README-specific voice sample exists in the voice directory; the setup copy follows the user's plain house style.</p>
+</section>
+</main>
+</html>

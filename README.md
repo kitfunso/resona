@@ -1,5 +1,17 @@
 # Resona
 
+## DevDay London: Resona Reset
+
+Today's new entry is **Resona Reset**: a private check-in, a guided minute, and one practical next step. Open `/reset.html`. It runs in the browser without the original app's server, database, account or API key.
+
+From the repository root, run `npm ci`, then `npm run dev:client`. Open `http://localhost:5174/reset.html`.
+
+For checks, run `npm test --workspace=client` and `npm run build --workspace=client`. To serve the build, run `npm run preview --workspace=client -- --host 127.0.0.1 --port 5188`, then open `http://127.0.0.1:5188/reset.html`.
+
+The suggestions use local rules. Codex helped build and test the journey; no model runs in the product. Existing Resona code, branding, tooling and fonts are credited in [the submission notes](submission/devday-reset/README.md). The [build plan and evidence](docs/devday-reset.html) describe what was made today and what was checked.
+
+The original sensor-based product is documented below.
+
 > Every body has a rhythm.
 
 A phone-based 2-minute team wellness check-in. Three biosignal modalities, all processed in the browser.

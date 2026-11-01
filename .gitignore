@@ -27,3 +27,4 @@ client/test-harness/*.y4m
 # Cloudflare Pages / Wrangler
 .dev.vars
 .wrangler/
+submission/devday-reset/raw/

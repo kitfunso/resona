@@ -50,6 +50,7 @@ export default defineConfig({
       // static (Cloudflare Pages) deploy at /test-harness/validate.html.
       input: {
         main: path.resolve(__dirname, 'index.html'),
+        reset: path.resolve(__dirname, 'reset.html'),
         validate: path.resolve(__dirname, 'test-harness/validate.html'),
       },
       output: {

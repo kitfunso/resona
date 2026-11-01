@@ -2,6 +2,10 @@
 
 Read this at the start of every new session. Update at the end of every phase.
 
+## DevDay Reset, 1 November 2026
+
+New standalone entry at `/reset.html`, built on branch `feat/devday-reset` for today's hackathon. It adds an in-tab check-in, guided minute, reflection and downloadable next-step card. Suggestions use local rules; no model, API, account or sensors are needed. Setup, existing-code credits and narration script are in `submission/devday-reset/README.md`; stages and browser evidence are in `docs/devday-reset.html`. Client tests and production build pass. The silent demo is ready for Keith's narration. Public preview and event submission are pending. The older sections below describe the sensor product's earlier development.
+
 ## Product
 
 - Name: Resona (codename: not-a-doctor)
