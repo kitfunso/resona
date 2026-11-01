@@ -51,6 +51,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         reset: path.resolve(__dirname, 'reset.html'),
+        sensor: path.resolve(__dirname, 'sensor.html'),
         validate: path.resolve(__dirname, 'test-harness/validate.html'),
       },
       output: {

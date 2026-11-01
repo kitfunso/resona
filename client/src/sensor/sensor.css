@@ -1,0 +1,33 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #111319; color: #f3eee4; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, a { font: inherit; }
+button:focus-visible, a:focus-visible { outline: 3px solid #f8da96; outline-offset: 4px; }
+.sensor-page { min-height: 100vh; display: flex; flex-direction: column; }
+.sensor-header { border-bottom: 1px solid #3b3d43; padding: 22px clamp(20px, 5vw, 72px); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.sensor-brand { color: #f8f3e9; font: 30px Georgia, serif; letter-spacing: -1.5px; text-decoration: none; }
+.sensor-brand span { font: 11px system-ui, sans-serif; letter-spacing: .05em; color: #d9ba78; margin-left: 8px; }
+.sensor-header > span, .sensor-kicker { color: #d9ba78; font-size: 10px; font-weight: 700; letter-spacing: .13em; }
+.sensor-main { width: min(100%, 980px); margin: 0 auto; padding: 36px clamp(20px, 5vw, 60px) 60px; flex: 1; }
+.sensor-progress { padding: 0; margin: 0 0 42px; list-style: none; display: flex; gap: clamp(16px, 5vw, 60px); color: #777980; font-size: 12px; }
+.sensor-progress .active { color: #f6f0e3; }
+.sensor-progress span { color: #d9ba78; margin-right: 5px; }
+.sensor-card { max-width: 650px; padding: clamp(24px, 5vw, 52px); background: #191b23; border: 1px solid #3d3b39; border-radius: 4px; }
+.sensor-card h1 { margin: 12px 0 20px; font: clamp(38px, 7vw, 60px)/1.08 Georgia, serif; letter-spacing: -.03em; }
+.sensor-card p { color: #d5d1c9; font-size: 16px; line-height: 1.6; }
+.sensor-card .sensor-kicker { color: #d9ba78; font-size: 10px; }
+.sensor-note { border-left: 2px solid #b99759; padding-left: 14px; font-size: 14px !important; }
+.sensor-card button { min-height: 52px; width: 100%; margin-top: 18px; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #d9ba78; background: #e3c487; color: #111319; font-weight: 700; cursor: pointer; }
+.sensor-card button:disabled { cursor: wait; opacity: .6; }
+.sensor-card button.sensor-secondary { background: transparent; color: #f3eee4; justify-content: center; }
+progress { width: 100%; height: 12px; margin-top: 18px; accent-color: #e3c487; }
+.sensor-readings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 26px 0; background: #44413a; border: 1px solid #44413a; }
+.sensor-readings div { background: #21232a; padding: 18px; }
+.sensor-readings dt { color: #c8c3ba; font-size: 12px; }
+.sensor-readings dd { margin: 10px 0 0; font: 26px Georgia, serif; }
+.sensor-readings small { color: #c8c3ba; font: 12px system-ui, sans-serif; }
+.sensor-analysis { border-top: 1px solid #48453d; margin-top: 28px; padding-top: 8px; }
+.sensor-analysis h2 { font: 24px Georgia, serif; }
+.sensor-error { max-width: 650px; border: 1px solid #cf987d; color: #f3c8b0; padding: 14px; line-height: 1.5; }
+.sensor-page footer { color: #aaa8a2; padding: 22px clamp(20px, 5vw, 72px); border-top: 1px solid #3b3d43; font-size: 12px; }
+@media (max-width: 420px) { .sensor-header > span { display: none; } .sensor-progress { gap: 14px; font-size: 11px; } .sensor-readings div { padding: 13px; } }

@@ -21,7 +21,7 @@ export async function requestMotionPermission() {
 // Returns { samples: [{ax, ay, az, t}], rate: approx Hz, duration: ms }.
 // Captures in accelerationIncludingGravity (most widely supported), which gives
 // us gravity-dominated vertical axis for gait and full magnitude for tremor.
-export async function captureMotion({ durationMs = 10000, onTick } = {}) {
+export async function captureMotion({ durationMs = 10000, onTick, signal } = {}) {
   if (typeof window === 'undefined' || typeof window.DeviceMotionEvent === 'undefined') {
     throw new Error('DeviceMotion API not available on this device');
   }
@@ -36,6 +36,7 @@ export async function captureMotion({ durationMs = 10000, onTick } = {}) {
     samples.push({ ax: a.x, ay: a.y, az: a.z, t: performance.now() - startTs });
   }
 
+  if (signal?.aborted) throw new DOMException('Capture stopped', 'AbortError');
   window.addEventListener('devicemotion', onMotion);
 
   if (onTick) {
@@ -45,9 +46,17 @@ export async function captureMotion({ durationMs = 10000, onTick } = {}) {
     }, 100);
   }
 
-  await new Promise((resolve) => setTimeout(resolve, durationMs));
-  window.removeEventListener('devicemotion', onMotion);
-  if (tickHandle) clearInterval(tickHandle);
+  try {
+    await new Promise((resolve, reject) => {
+      const handle = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, durationMs);
+      const abort = () => { clearTimeout(handle); signal?.removeEventListener('abort', abort); reject(new DOMException('Capture stopped', 'AbortError')); };
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+    });
+  } finally {
+    window.removeEventListener('devicemotion', onMotion);
+    if (tickHandle) clearInterval(tickHandle);
+  }
 
   const actualMs = samples.length > 0 ? samples[samples.length - 1].t - samples[0].t : 0;
   const rate = actualMs > 0 ? (samples.length - 1) / (actualMs / 1000) : 0;

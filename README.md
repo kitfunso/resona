@@ -1,18 +1,22 @@
 # Resona
 
-## DevDay London: Resona Reset
+## DevDay London: Resona sensor demo
 
-Today's new entry is **Resona Reset**: a private check-in, a guided minute, and one practical next step. Open `/reset.html`. It runs in the browser without the original app's server, database, account or API key.
+Today's entry is a phone-based check-in built on our earlier Resona project. Record a comfortable breath sound, take a short walk, and see approximate readings from the phone's microphone and motion sensor. These values describe the recording; they are not validated health measurements or a medical assessment.
 
-Try the [public preview](https://feat-devday-reset.resona-dmf.pages.dev/reset). The hackathon work is on [the DevDay branch](https://github.com/kitfunso/resona/tree/feat/devday-reset).
+Raw sound and motion samples are processed in the browser. If you choose an AI-selected note, the app sends the extracted numerical readings to the demo server and OpenAI. Those readings can still be personal information. OpenAI selects from fixed, non-medical notes rather than writing a diagnosis. The optional note needs a configured server and private demo link; the readings remain visible if it is unavailable.
 
-From the repository root, run `npm ci`, then `npm run dev:client`. Open `http://localhost:5174/reset.html`.
+From the repository root, run `npm ci`, then `npm run dev:client` and open `http://localhost:5174/sensor.html`. Microphone and motion permissions are needed for the corresponding captures; phone access requires a secure context such as HTTPS. This frontend command alone does not configure the AI service.
 
-For checks, run `npm test --workspace=client` and `npm run build --workspace=client`. To serve the build, run `npm run preview --workspace=client -- --host 127.0.0.1 --port 5188`, then open `http://127.0.0.1:5188/reset.html`.
+The new sensor flow reuses the original audio and motion processing and Resona's design. Codex helped build the new interface, wire the browser readings to a constrained server-side note, and test the flow. See [submission notes](submission/devday-reset/README.md) for credits, narration and the earlier Reset recordings.
 
-The suggestions use local rules and the result includes locally served AI-generated artwork. Codex helped build and test the journey; no model runs in the product. Existing Resona code, branding, tooling and fonts are credited in [the submission notes](submission/devday-reset/README.md). The [build plan and evidence](docs/devday-reset.html) describe what was made today and what was checked.
+The [Cloudflare sensor page](https://resona-devday-sensor.skfsk27.workers.dev/sensor) is deployed for the hackathon. AI notes require the private demo link and have a limited number of attempts. See [Worker setup](tools/sensor-cloud/README.md) for deployment instructions.
 
-The original sensor-based product is documented below.
+The earlier Resona Reset prototype remains at `/reset.html`. Its recordings and [build evidence](docs/devday-reset.html) describe that prototype, not the new sensor demo.
+
+## Earlier Resona product
+
+The sections below document the original authenticated product and its separate server and database. They do not describe the scope of today's demo.
 
 > Every body has a rhythm.
 

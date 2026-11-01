@@ -59,9 +59,19 @@ async function getUserMediaStream() {
 // Call this from the user tap, BEFORE any countdown, so the OS prompt does
 // not pop mid-countdown. The permission grant is sticky for the page session,
 // so recordBlow() below gets an instant stream after this resolves.
-export async function acquireMicPermission() {
+export async function acquireMicPermission({ signal } = {}) {
   const stream = await getUserMediaStream();
   stream.getTracks().forEach((t) => t.stop());
+  if (signal?.aborted) throw new DOMException('Capture stopped', 'AbortError');
+}
+
+function waitForCapture(durationMs, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new DOMException('Capture stopped', 'AbortError')); return; }
+    const handle = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, durationMs);
+    const abort = () => { clearTimeout(handle); signal?.removeEventListener('abort', abort); reject(new DOMException('Capture stopped', 'AbortError')); };
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 // Records `durationMs` of raw mono PCM from the mic.
@@ -70,14 +80,19 @@ export async function acquireMicPermission() {
 // onTick(pct, elapsedMs) fires ~10 Hz with recording progress.
 // onLevel(peak) fires ~60 Hz with instantaneous mic level in [0, 1]. Use for
 // a live VU meter so the user can see their blow is actually being captured.
-export async function recordBlow({ durationMs = 6000, onTick, onLevel } = {}) {
+export async function recordBlow({ durationMs = 6000, onTick, onLevel, signal } = {}) {
   const ctx = getAudioContext();
   const stream = await getUserMediaStream();
-  const source = ctx.createMediaStreamSource(stream);
-
-  // Live level monitoring via an AnalyserNode tapped off the mic source.
+  let source = null;
+  let recorder = null;
+  let tickHandle = null;
   let analyser = null;
   let levelRaf = null;
+  try {
+    if (signal?.aborted) throw new DOMException('Capture stopped', 'AbortError');
+    source = ctx.createMediaStreamSource(stream);
+
+  // Live level monitoring via an AnalyserNode tapped off the mic source.
   if (onLevel) {
     analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
@@ -99,13 +114,13 @@ export async function recordBlow({ durationMs = 6000, onTick, onLevel } = {}) {
   }
 
   const chunks = [];
-  const recorder = new MediaRecorder(stream);
+  recorder = new MediaRecorder(stream);
   recorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) chunks.push(e.data);
   };
 
   const startTs = performance.now();
-  const tickHandle = onTick
+  tickHandle = onTick
     ? setInterval(() => {
         const elapsed = performance.now() - startTs;
         const pct = Math.min(1, elapsed / durationMs);
@@ -114,24 +129,26 @@ export async function recordBlow({ durationMs = 6000, onTick, onLevel } = {}) {
     : null;
 
   recorder.start();
-  await new Promise((resolve) => setTimeout(resolve, durationMs));
-  recorder.stop();
-  await new Promise((resolve) => {
+  await waitForCapture(durationMs, signal);
+  await new Promise((resolve, reject) => {
     recorder.addEventListener('stop', resolve, { once: true });
+    recorder.addEventListener('error', reject, { once: true });
+    recorder.stop();
   });
-  if (tickHandle) clearInterval(tickHandle);
-  if (levelRaf) cancelAnimationFrame(levelRaf);
-  if (analyser) {
-    try { source.disconnect(analyser); } catch {}
-    try { analyser.disconnect(); } catch {}
-  }
-
-  stream.getTracks().forEach((t) => t.stop());
-  source.disconnect();
 
   const blob = new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' });
   const arrayBuffer = await blob.arrayBuffer();
   const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
   const pcm = audioBuffer.getChannelData(0);
   return { pcm: new Float32Array(pcm), sampleRate: audioBuffer.sampleRate };
+  } finally {
+    if (tickHandle) clearInterval(tickHandle);
+    if (levelRaf) cancelAnimationFrame(levelRaf);
+    if (recorder && recorder.state !== 'inactive') {
+      try { recorder.stop(); } catch (error) { console.warn('Could not stop audio recorder.', error); }
+    }
+    stream.getTracks().forEach((track) => track.stop());
+    if (source) source.disconnect();
+    if (analyser) analyser.disconnect();
+  }
 }
