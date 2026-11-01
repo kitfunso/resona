@@ -6,6 +6,7 @@ import ResultsView from './ResultsView.jsx';
 import NeuroView from './NeuroView.jsx';
 import HeartView from './HeartView.jsx';
 import HistoryView from './HistoryView.jsx';
+import ReportConsent from '../components/ReportConsent.jsx';
 import { fetchHealth, logout } from '../auth.js';
 
 const DURATION_MS = 6000;
@@ -17,7 +18,7 @@ const css = `
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    padding: calc(5rem + env(safe-area-inset-top, 0)) var(--s-4) calc(8rem + env(safe-area-inset-bottom, 0));
+    padding: 0 var(--s-4) calc(8rem + env(safe-area-inset-bottom, 0));
     gap: var(--s-4);
     text-align: center;
     position: relative;
@@ -25,14 +26,13 @@ const css = `
 
   /* ===== Top brand bar (replaces the old disclaimer-as-header) ===== */
   .r-chrome {
-    position: fixed; top: 0; left: 0; right: 0;
+    width: calc(100% + 2 * var(--s-4));
     padding: calc(var(--s-3) + env(safe-area-inset-top, 0)) var(--s-4) var(--s-3);
-    display: flex; align-items: baseline; justify-content: space-between;
-    gap: var(--s-3);
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+    gap: var(--s-1) var(--s-3);
     background: linear-gradient(to bottom, rgba(18, 19, 26, 0.92), rgba(18, 19, 26, 0.72) 80%, transparent);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--hairline);
-    z-index: 20;
   }
   .r-chrome-brand {
     display: flex; align-items: baseline; gap: var(--s-2);
@@ -54,13 +54,14 @@ const css = `
     vertical-align: 0.1em;
   }
   .r-chrome-disclaimer {
+    grid-column: 1 / -1;
+    grid-row: 2;
     font-size: 0.68rem;
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--bone-3);
-    text-align: right;
+    text-align: left;
     line-height: 1.4;
-    max-width: 12rem;
   }
   .r-chrome-actions {
     display: flex; align-items: center; gap: var(--s-2);
@@ -456,11 +457,11 @@ function useCss() {
   }
 }
 
-function buildLocalFallback() {
+function buildLocalFallback(unavailable = false) {
   return {
     personalReport: {
       headline: 'Your recording is ready.',
-      interpretation: 'The AI report is unavailable. These numbers describe the sound captured by this phone; they do not assess your health.',
+      interpretation: `${unavailable ? 'The Codex report is unavailable. ' : ''}These numbers describe the sound captured by this phone; they do not assess your health.`,
       actions: [{ title: 'Try again in a quiet place', detail: 'Background sound and phone position can change the recording.' }],
       source: 'fallback',
     },
@@ -515,6 +516,8 @@ export default function ParticipantView({ onSignOut }) {
   const [error, setError] = useState(null);
   const [arming, setArming] = useState(false);
   const [codexAvailable, setCodexAvailable] = useState(false);
+  const [reportConsent, setReportConsent] = useState(false);
+  const [completed, setCompleted] = useState({ breath: false, neuro: false, heart: false });
   const captureRef = useRef(null);
 
   useEffect(() => {
@@ -595,11 +598,28 @@ export default function ParticipantView({ onSignOut }) {
       setCountdown(0);
 
       const features = extractFeatures(pcm, sampleRate);
-      setEstimate({
+      const reading = {
         rmsEnergy: features.rmsEnergy,
         activeSec10: features.peakEnv > 0.0001 ? features.activeSec10 : null,
         peakEnv: features.peakEnv,
-      });
+      };
+      setEstimate(reading);
+      let result = buildLocalFallback();
+      if (reading.activeSec10 == null) {
+        result = { personalReport: { headline: 'No clear breath sound was captured.', interpretation: 'Try again with the microphone near your mouth in a quiet place. These readings are not a medical assessment.', actions: [], source: 'fallback' } };
+      } else {
+        setCompleted((previous) => ({ ...previous, breath: true }));
+      }
+      if (reading.activeSec10 != null && reportConsent && codexAvailable) {
+        try {
+          result = await analyzeBlow({ features: reading });
+          if (result?.personalReport?.source !== 'codex') throw new Error('Codex report unavailable');
+        } catch {
+          result = buildLocalFallback(true);
+        }
+      }
+      if (controller.signal.aborted) return;
+      setAnalysis(result);
       setStage('results');
     } catch (e) {
       if (e?.name === 'AbortError') return;
@@ -609,18 +629,6 @@ export default function ParticipantView({ onSignOut }) {
     } finally {
       if (captureRef.current === controller) captureRef.current = null;
     }
-  }
-
-  async function handleAnalysis() {
-    setStage('analyzing');
-    try {
-      const result = await analyzeBlow({ features: estimate });
-      if (result?.personalReport?.source !== 'codex') throw new Error('Codex report unavailable');
-      setAnalysis(result);
-    } catch (err) {
-      console.error('Breath report unavailable', { name: err?.name });
-      setAnalysis(buildLocalFallback());
-    } finally { setStage('results'); }
   }
 
   function resetToBlow() {
@@ -652,10 +660,10 @@ export default function ParticipantView({ onSignOut }) {
       <header className="r-chrome">
         <div className="r-chrome-brand">
           <span className="codename">
-            <span className="paren">/</span>not-a-doctor<span className="paren">/</span>
+            <span className="paren">/</span>Resona<span className="paren">/</span>
           </span>
         </div>
-        <div className="r-chrome-disclaimer">Experimental demo<br />not a medical assessment</div>
+        <div className="r-chrome-disclaimer">Experimental demo · not a medical assessment</div>
         <div className="r-chrome-actions">
           {stage !== 'history' && (
             <button
@@ -685,6 +693,7 @@ export default function ParticipantView({ onSignOut }) {
 
       {(stage === 'blow' || stage === 'armed' || stage === 'recording') && (
         <>
+          {stage === 'blow' && <ReportConsent available={codexAvailable} consent={reportConsent} onChange={setReportConsent} />}
           <div className="r-instrument">
             <div className="r-instrument-ring" />
             <InstrumentTickRing />
@@ -740,7 +749,7 @@ export default function ParticipantView({ onSignOut }) {
       )}
 
       {stage === 'analyzing' && (
-        <div className="r-analyzing">
+        <div className="r-analyzing" role="status">
           <div className="r-analyzing-bars">
             <span /><span /><span /><span /><span /><span /><span />
           </div>
@@ -753,8 +762,7 @@ export default function ParticipantView({ onSignOut }) {
         <ResultsView
           estimate={estimate}
           analysis={analysis}
-          codexAvailable={codexAvailable}
-          onAnalyze={handleAnalysis}
+          completed={completed}
           onRetry={resetToBlow}
           onStartOver={resetToBlow}
           onNeuro={() => setStage('neuro')}
@@ -766,14 +774,23 @@ export default function ParticipantView({ onSignOut }) {
       {stage === 'neuro' && (
         <NeuroView
           codexAvailable={codexAvailable}
+          reportConsent={reportConsent}
+          onReportConsentChange={setReportConsent}
+          onComplete={() => setCompleted((previous) => ({ ...previous, neuro: true }))}
+          onBreath={!completed.breath ? resetToBlow : null}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
-          onHeart={() => setStage('heart')}
+          onHeart={!completed.heart ? () => setStage('heart') : null}
         />
       )}
 
       {stage === 'heart' && (
         <HeartView
           codexAvailable={codexAvailable}
+          reportConsent={reportConsent}
+          onReportConsentChange={setReportConsent}
+          onComplete={() => setCompleted((previous) => ({ ...previous, heart: true }))}
+          onBreath={!completed.breath ? resetToBlow : null}
+          onNeuro={!completed.neuro ? () => setStage('neuro') : null}
           onBack={() => setStage(estimate ? 'results' : 'blow')}
         />
       )}

@@ -3,6 +3,7 @@ import { acquireCameraPermission, detectFirstFrameRoi, buildFallbackRois, captur
 import { extractHeartFeatures } from '../video/features.js';
 import { analyzeHeart } from '../api.js';
 import { CoachingCard } from './ResultsView.jsx';
+import ReportConsent from '../components/ReportConsent.jsx';
 
 const css = `
   .hv-stage {
@@ -288,7 +289,7 @@ async function prep(seconds, onTick) {
   onTick(0);
 }
 
-export default function HeartView({ onBack, codexAvailable = false }) {
+export default function HeartView({ onBack, onNeuro, onBreath, onComplete, codexAvailable = false, reportConsent, onReportConsentChange }) {
   useCss();
   const [stage, setStage] = useState('intro');
   const [prepCount, setPrepCount] = useState(PREP_SECONDS);
@@ -305,6 +306,11 @@ export default function HeartView({ onBack, codexAvailable = false }) {
   const streamRef = useRef(null);
   const abortRef = useRef(null);
   const mountedRef = useRef(true);
+  const reportRef = useRef(null);
+
+  useEffect(() => {
+    if (stage === 'result' && report) reportRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [stage, report]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -353,6 +359,7 @@ export default function HeartView({ onBack, codexAvailable = false }) {
     setError(null);
     setClassified(null);
     setReport(null);
+    setReportLoading(false);
     setReportError(null);
     setCoachingMessage(null);
     setFaceRetries(initialAttempt);
@@ -416,6 +423,12 @@ export default function HeartView({ onBack, codexAvailable = false }) {
         return;
       }
       setStage('result');
+      onComplete?.();
+      if (reportConsent && codexAvailable) {
+        await fetchReport(classifiedResult, signal);
+      } else {
+        setReport({ headline: 'Your heart recording is ready.', interpretation: 'These experimental readings depend on your phone and the recording conditions. They are not a medical assessment.', source: 'local' });
+      }
     } catch (e) {
       if (e?.name === 'AbortError' || signal.aborted) return;
       console.error('[heart] capture failed', e);
@@ -426,17 +439,20 @@ export default function HeartView({ onBack, codexAvailable = false }) {
     }
   }
 
-  async function fetchReport() {
+  async function fetchReport(reading, signal) {
     setReportLoading(true);
     setReportError(null);
     try {
-      const result = await analyzeHeart({ heart: classified });
+      const result = await analyzeHeart({ heart: reading });
       if (result.report?.source !== 'codex') throw new Error('Report unavailable');
-      if (mountedRef.current) setReport(result.report);
+      if (mountedRef.current && !signal.aborted) setReport(result.report);
     } catch {
-      if (mountedRef.current) setReportError('The Codex model report is unavailable. Your readings are still shown on this device.');
+      if (mountedRef.current && !signal.aborted) {
+        setReport({ headline: 'Your heart recording is ready.', interpretation: 'These experimental readings depend on your phone and the recording conditions. They are not a medical assessment.', source: 'local' });
+        setReportError('The Codex model report is unavailable. Your readings are still shown on this device.');
+      }
     } finally {
-      if (mountedRef.current) setReportLoading(false);
+      if (mountedRef.current && !signal.aborted) setReportLoading(false);
     }
   }
 
@@ -450,6 +466,7 @@ export default function HeartView({ onBack, codexAvailable = false }) {
 
       {stage === 'intro' && (
         <section className="hv-step" data-state="idle">
+          <ReportConsent available={codexAvailable} consent={reportConsent} onChange={onReportConsentChange} />
           <h3 className="hv-step-title">Frame your face in the oval.</h3>
           <p className="hv-step-desc">
             Hold the phone steady, eyes on the camera, good even light. <strong>30 seconds.</strong>
@@ -528,19 +545,15 @@ export default function HeartView({ onBack, codexAvailable = false }) {
             </div>
           </section>
 
-          {!report && (
+          {reportLoading && (
             <div className="hv-report">
-              <p className="interp">{codexAvailable ? 'Choosing a report sends your numerical readings to our server and OpenAI. Successful reports and their readings are saved with your account. OpenAI may retain safety monitoring logs. Readings can be personal information. Raw video stays on your phone.' : 'The Codex model report is currently unavailable. Your readings remain on this device.'}</p>
-              <button className="hv-btn" disabled={!codexAvailable || reportLoading} onClick={fetchReport}>
-                <span>{reportLoading ? 'Preparing report…' : codexAvailable ? 'Get Codex model report' : 'Codex model report unavailable'}</span><span aria-hidden="true">→</span>
-              </button>
-              {reportError && <p className="hv-error" role="alert">{reportError}</p>}
+              <p className="interp" role="status">Preparing your Codex model report…</p>
             </div>
           )}
 
           {report && (
-            <div className="hv-report">
-              <p className="hv-step-desc">Codex model report</p>
+            <div className="hv-report" ref={reportRef}>
+              <p className="hv-step-desc">{report.source === 'codex' ? 'Codex model report' : 'Local report'}</p>
               <p className="headline">{report.headline}</p>
               {report.interpretation && <p className="interp">{report.interpretation}</p>}
               {Array.isArray(report.actions) && (
@@ -558,8 +571,14 @@ export default function HeartView({ onBack, codexAvailable = false }) {
               )}
             </div>
           )}
+          {reportError && <p className="hv-error" role="alert">{reportError}</p>}
 
-          <button className="hv-btn-ghost" onClick={() => runCapture(0)}>Retake the reading</button>
+          {(onNeuro || onBreath) && <p className="hv-step-desc">Keep going: try your remaining modules.</p>}
+          {onNeuro && <button className="hv-btn" onClick={onNeuro}><span>Try the Neuro screen</span><span>→</span></button>}
+          {onBreath && <button className="hv-btn" onClick={onBreath}><span>Try the Breath screen</span><span>→</span></button>}
+          {!onNeuro && !onBreath && <p className="hv-step-desc">You have tried all three modules.</p>}
+
+          <button className="hv-btn-ghost" disabled={reportLoading} onClick={() => runCapture(0)}>Retake the reading</button>
         </>
       )}
 

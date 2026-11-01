@@ -455,7 +455,7 @@ function caseId() {
   return `RSN·${ddmm}·${hhmm}`;
 }
 
-export default function ResultsView({ estimate, analysis, codexAvailable = false, onAnalyze, onRetry, onStartOver, onNeuro, onHeart, onHistory }) {
+export default function ResultsView({ estimate, analysis, completed, onRetry, onStartOver, onNeuro, onHeart, onHistory }) {
   useCss();
   const [caseIdVal] = useState(caseId);
   const format = (value, decimals) => Number.isFinite(value) ? value.toFixed(decimals) : 'Unavailable';
@@ -491,9 +491,9 @@ export default function ResultsView({ estimate, analysis, codexAvailable = false
               <span
                 className="rv-source-chip"
                 data-src={analysis.personalReport.source === 'codex' ? 'ai' : 'fallback'}
-                title={analysis.personalReport.source === 'codex' ? 'Generated with a Codex model' : 'Local fallback; AI report unavailable'}
+                title={analysis.personalReport.source === 'codex' ? 'Generated with a Codex model' : 'Local report'}
               >
-                {analysis.personalReport.source === 'codex' ? '● Codex model' : '○ local fallback'}
+                {analysis.personalReport.source === 'codex' ? '● Codex model' : '○ local report'}
               </span>
             )}
           </div>
@@ -528,21 +528,15 @@ export default function ResultsView({ estimate, analysis, codexAvailable = false
       </p>
 
       <div className="rv-action-row">
-        {onAnalyze && analysis?.personalReport?.source !== 'codex' && (
-          <>
-            <p className="rv-ref-note">{codexAvailable ? 'Choosing a report sends your numerical readings to our server and OpenAI. Successful reports and their readings are saved with your account. OpenAI may retain safety monitoring logs. Readings can be personal information. Raw audio and profile details are not sent.' : 'The Codex model report is currently unavailable. Your readings remain on this device.'}</p>
-            <button className="rv-neuro-cta" onClick={onAnalyze} disabled={!codexAvailable}>
-              <span>{codexAvailable ? 'Get Codex model report' : 'Codex model report unavailable'}</span><span className="arrow">→</span>
-            </button>
-          </>
-        )}
-        {onNeuro && (
+        {(!completed?.neuro || !completed?.heart) && <p className="rv-ref-note">Keep going: try your remaining modules.</p>}
+        {completed?.neuro && completed?.heart && <p className="rv-ref-note">You have tried all three modules.</p>}
+        {onNeuro && !completed?.neuro && (
           <button className="rv-neuro-cta" onClick={onNeuro}>
             <span>Try the Neuro screen</span>
             <span className="arrow">→</span>
           </button>
         )}
-        {onHeart && (
+        {onHeart && !completed?.heart && (
           <button className="rv-neuro-cta" onClick={onHeart}>
             <span>Try the Heart screen</span>
             <span className="arrow">→</span>

@@ -4,6 +4,7 @@ import { analyseTremor } from '../imu/tremor.js';
 import { analyseGait } from '../imu/gait.js';
 import { unlockAudio, getAudioContext } from '../audio/recorder.js';
 import { analyzeNeuro } from '../api.js';
+import ReportConsent from '../components/ReportConsent.jsx';
 
 const css = `
   .nv-stage {
@@ -687,7 +688,7 @@ function startAudioKeepalive() {
   }
 }
 
-export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
+export default function NeuroView({ onBack, onHeart, onBreath, onComplete, codexAvailable = false, reportConsent, onReportConsentChange }) {
   useCss();
   const [stage, setStage] = useState('intro');
   const [progress, setProgress] = useState(0);
@@ -702,6 +703,16 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
   const [soundDiag, setSoundDiag] = useState(null);
   const captureRef = useRef(null);
   const mountedRef = useRef(false);
+  const stillnessReportRef = useRef(null);
+  const motionReportRef = useRef(null);
+
+  useEffect(() => {
+    if (stage === 'tremor_done' && tremor) stillnessReportRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [stage, tremor]);
+
+  useEffect(() => {
+    if (stage === 'gait_done' && report) motionReportRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [stage, report]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -717,7 +728,7 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
     };
   }, []);
 
-  async function fetchReport(currentTremor, currentGait) {
+  async function fetchReport(currentTremor, currentGait, signal) {
     setReportLoading(true);
     setReport(null);
     setReportError(null);
@@ -727,19 +738,20 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
         gait: { stepsDetected: currentGait?.stepsDetected ?? null, cadence: currentGait?.cadence ?? null, stridesCv: currentGait?.stridesCv ?? null, symmetryIndex: currentGait?.symmetryIndex ?? null },
       });
       if (data.report?.source !== 'codex') throw new Error('Report unavailable');
-      if (mountedRef.current) setReport(data.report);
+      if (mountedRef.current && !signal.aborted) setReport(data.report);
     } catch {
-      if (mountedRef.current) {
-        setReport(null);
+      if (mountedRef.current && !signal.aborted) {
+        setReport({ headline: 'Your motion recording is ready.', interpretation: 'These experimental readings depend on your phone and how you move. They are not a medical assessment.', source: 'local' });
         setReportError('The Codex model report is unavailable. Your readings are still shown on this device.');
       }
     } finally {
-      if (mountedRef.current) setReportLoading(false);
+      if (mountedRef.current && !signal.aborted) setReportLoading(false);
     }
   }
 
   async function ensurePermissionAndRun(fn, returnStage = 'intro') {
     captureRef.current?.abort();
+    setReportLoading(false);
     const controller = new AbortController();
     captureRef.current = controller;
     setError(null);
@@ -824,6 +836,12 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
     const result = analyseGait(motion);
     setGait(result);
     setStage('gait_done');
+    onComplete?.();
+    if (reportConsent && codexAvailable) {
+      await fetchReport(tremor, result, signal);
+    } else {
+      setReport({ headline: 'Your motion recording is ready.', interpretation: 'These experimental readings depend on your phone and how you move. They are not a medical assessment.', source: 'local' });
+    }
   }
 
   const remaining = Math.max(0, Math.ceil((1 - progress) * 10));
@@ -862,6 +880,7 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
 
         {stage === 'intro' && (
           <>
+            <ReportConsent available={codexAvailable} consent={reportConsent} onChange={onReportConsentChange} />
             <div className="nv-volwarn">
               <span className="ic">§</span>
               <span>
@@ -936,6 +955,10 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
             <div className="nv-result">
               <span className="k">Sample rate</span>
               <span className="v">{tremor.sampleRate} Hz</span>
+            </div>
+            <div className="nv-report" role="status" ref={stillnessReportRef}>
+              <div className="nv-report-hd"><span className="k">Stillness report · local</span></div>
+              <p className="interp">Your stillness recording is complete. The values above describe this recording and are not a medical assessment. Continue with the walk to complete your motion report.</p>
             </div>
             {(stage === 'tremor_done' || gaitState !== 'idle') && (
               <button
@@ -1022,18 +1045,9 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
       )}
 
       {/* Neuro report */}
-      {stage === 'gait_done' && !reportLoading && !report && (
-        <div className="nv-report">
-          <p className="interp">{codexAvailable ? 'Choosing a report sends your numerical readings to our server and OpenAI. Successful reports and their readings are saved with your account. OpenAI may retain safety monitoring logs. Readings can be personal information. Raw motion stays on your phone.' : 'The Codex model report is currently unavailable. Your readings remain on this device.'}</p>
-          <button className="nv-btn" disabled={!codexAvailable} onClick={() => fetchReport(tremor, gait)}>
-            <span>{codexAvailable ? 'Get Codex model report' : 'Codex model report unavailable'}</span><span className="arrow">→</span>
-          </button>
-          {reportError && <p className="nv-error" role="alert">{reportError}</p>}
-        </div>
-      )}
       {stage === 'gait_done' && reportLoading && (
         <div className="nv-report">
-          <div className="nv-analyzing">
+          <div className="nv-analyzing" role="status">
             <div className="nv-analyzing-bars">
               <span /><span /><span /><span /><span /><span /><span />
             </div>
@@ -1044,7 +1058,7 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
       )}
 
       {stage === 'gait_done' && report && (
-        <div className="nv-report">
+        <div className="nv-report" ref={motionReportRef}>
           <div className="nv-report-hd">
             <span className="k">Neuro report</span>
             {report.source && (
@@ -1063,7 +1077,7 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
                   border: report.source === 'codex' ? '1px solid var(--brass-line)' : '1px solid rgba(209, 133, 137, 0.2)',
                 }}
               >
-                {report.source === 'codex' ? '● Codex model' : '○ template'}
+                {report.source === 'codex' ? '● Codex model' : '○ local report'}
               </span>
             )}
           </div>
@@ -1087,6 +1101,7 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
           )}
         </div>
       )}
+      {reportError && <p className="nv-error" role="alert">{reportError}</p>}
 
       {error && <div className="nv-error" role="alert">{error}</div>}
 
@@ -1100,6 +1115,10 @@ export default function NeuroView({ onBack, onHeart, codexAvailable = false }) {
           <span className="arrow">→</span>
         </button>
       )}
+      {onBreath && stage === 'gait_done' && (
+        <button className="nv-btn" onClick={onBreath}><span>Try the Breath screen</span><span className="arrow">→</span></button>
+      )}
+      {!onBreath && !onHeart && stage === 'gait_done' && <p className="nv-caveat">You have tried all three modules.</p>}
       {onBack && (
         <button className="nv-btn-ghost" onClick={() => { captureRef.current?.abort(); onBack(); }}>Back to your reading</button>
       )}
