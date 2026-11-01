@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ENERGY, INTENTIONS, REFLECTIONS, MINUTE_MS, createClock, remainingAt,
   resumeClock, pauseClock, breathPhase, buildCard, cardText } from './reset.js';
+import { createVoiceGuide, voiceAssetsAvailable } from './voice.js';
+import './voice.css';
 
 const STAGES = Object.freeze(['Check in', 'Take a minute', 'Notice', 'Your next step']);
 
@@ -36,11 +38,36 @@ export default function ResetApp() {
   const [completed, setCompleted] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
+  const [voiceAvailable, setVoiceAvailable] = useState(null);
   const heading = useRef(null);
+  const voice = useRef(null);
   const remaining = remainingAt(clock, now);
   const running = clock.startedAt !== null;
 
   useEffect(() => { if (stage > 0) heading.current?.focus(); }, [stage]);
+
+  useEffect(() => {
+    voice.current = createVoiceGuide({ onError: () => {
+      setVoiceEnabled(false);
+      setVoiceError('Voice is unavailable. You can still follow the circle.');
+    } });
+    return () => { voice.current?.stop(); voice.current = null; };
+  }, []);
+
+  useEffect(() => {
+    voice.current?.update({ enabled: voiceEnabled, active: stage === 1 && running, remaining });
+  }, [voiceEnabled, stage, running, remaining]);
+
+  useEffect(() => {
+    if (stage !== 1) return undefined;
+    const controller = new AbortController();
+    voiceAssetsAvailable(fetch, controller.signal).then((available) => {
+      if (!controller.signal.aborted) setVoiceAvailable(available);
+    });
+    return () => controller.abort();
+  }, [stage]);
 
   useEffect(() => {
     if (stage !== 1 || !running) return undefined;
@@ -60,6 +87,7 @@ export default function ResetApp() {
     if (stage !== 1) return undefined;
     const pauseWhenHidden = () => {
       if (!document.hidden) return;
+      voice.current?.stop();
       const time = performance.now();
       setNow(time);
       setClock((current) => pauseClock(current, time));
@@ -70,12 +98,15 @@ export default function ResetApp() {
 
   function toggleClock() {
     const time = performance.now();
+    if (running) voice.current?.stop();
+    else voice.current?.update({ enabled: voiceEnabled, active: true, remaining: remainingAt(clock, time) });
     setNow(time);
     setClock(running ? pauseClock(clock, time) : resumeClock(clock, time));
     setStarted(true);
   }
 
   function finishEarly() {
+    voice.current?.stop();
     const time = performance.now();
     setCompleted(remainingAt(clock, time) === 0);
     setClock(pauseClock(clock, time));
@@ -83,9 +114,11 @@ export default function ResetApp() {
   }
 
   function restart() {
+    voice.current?.reset();
     setEnergy(''); setIntention(''); setReflection(''); setStage(0);
     setClock(createClock()); setNow(0); setStarted(false); setCompleted(false);
     setSaveError(''); setSaved(false);
+    setVoiceEnabled(false); setVoiceError('');
     window.setTimeout(() => heading.current?.focus(), 0);
   }
 
@@ -134,6 +167,17 @@ export default function ResetApp() {
         <p className="reset-lead">Let the circle offer a pace. Keep your breathing comfortable.<br />You can ignore the guide or stop whenever you like.</p>
         <Dial remaining={remaining} running={running} />
         <p className="reset-micro reset-timer-note">{started && !running ? 'Paused. Your remaining time is saved.' : 'The timer pauses when you leave this tab.'}</p>
+        <label className="reset-voice-option"><input type="checkbox" disabled={!voiceAvailable} checked={voiceEnabled} onChange={(event) => {
+          const enabled = event.target.checked;
+          setVoiceEnabled(enabled); setVoiceError('');
+          if (!enabled) voice.current?.stop();
+          else {
+            voice.current?.prepare();
+            if (running) voice.current?.update({ enabled, active: true, remaining: remainingAt(clock, performance.now()) });
+          }
+        }} /> Optional AI-generated breathing voice</label>
+        {voiceAvailable === false && <p className="reset-micro reset-voice-status" role="status">Voice is not available yet. Follow the circle at your own pace.</p>}
+        {voiceError && <p className="reset-micro reset-voice-status" role="status">{voiceError}</p>}
         <button className="reset-primary" onClick={toggleClock}>{running ? 'Pause' : started ? 'Resume your minute' : 'Begin your minute'}<span aria-hidden="true">{running ? 'Ⅱ' : '→'}</span></button>
         <button className="reset-text-button" onClick={finishEarly}>Finish the guide early</button>
       </section>}
@@ -153,6 +197,8 @@ export default function ResetApp() {
           <button className="reset-text-button" onClick={restart}>Start a fresh check-in</button>
         </div>
         <aside className="reset-panel reset-summary" aria-label="Your check-in summary"><p className="reset-overline">YOUR MOMENT, IN YOUR WORDS</p>
+          <figure className="reset-art"><img src="/reset-art.webp" alt="A golden sun over layered paper hills, with a winding path" width="1280" height="720" />
+            <figcaption>AI-created artwork, prepared for Resona.</figcaption></figure>
           <dl><div><dt>Arriving</dt><dd>{card.before}</dd></div><div><dt>Looking for</dt><dd>{card.intention}</dd></div><div><dt>Leaving</dt><dd>{card.after}</dd></div></dl>
           <p className="reset-session-status"><span aria-hidden="true">◷</span> {card.session}</p>
           <p className="reset-micro">A suggestion picked from your choices, using local rules. No AI or medical assessment.</p>

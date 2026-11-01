@@ -8,7 +8,7 @@ From the repository root, run `npm ci`, then `npm run dev:client`. Open `http://
 
 For checks, run `npm test --workspace=client` and `npm run build --workspace=client`. To serve the build, run `npm run preview --workspace=client -- --host 127.0.0.1 --port 5188`, then open `http://127.0.0.1:5188/reset.html`.
 
-The suggestions use local rules. Codex helped build and test the journey; no model runs in the product. Existing Resona code, branding, tooling and fonts are credited in [the submission notes](submission/devday-reset/README.md). The [build plan and evidence](docs/devday-reset.html) describe what was made today and what was checked.
+The suggestions use local rules and the result includes locally served AI-generated artwork. Codex helped build and test the journey; no model runs in the product. Existing Resona code, branding, tooling and fonts are credited in [the submission notes](submission/devday-reset/README.md). The [build plan and evidence](docs/devday-reset.html) describe what was made today and what was checked.
 
 The original sensor-based product is documented below.
 

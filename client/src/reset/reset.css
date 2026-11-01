@@ -443,6 +443,21 @@ h1 em {
   border-left:1px solid var(--brass);
   padding-left:16px
 }
+.reset-art {
+  margin:0 0 22px
+}
+.reset-art img {
+  display:block;
+  width:100%;
+  height:auto;
+  border-radius:3px
+}
+.reset-art figcaption {
+  margin-top:8px;
+  font-size:10px;
+  line-height:1.6;
+  color:var(--muted)
+}
 .reset-summary dl {
   margin:0
 }

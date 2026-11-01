@@ -1,0 +1,19 @@
+.reset-voice-option {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  min-height:44px;
+  margin:0 auto 12px;
+  font-size:12px;
+  color:var(--cream)
+}
+.reset-voice-option input {
+  width:18px;
+  height:18px;
+  accent-color:var(--brass)
+}
+.reset-voice-status {
+  margin:0 auto 12px;
+  max-width:40ch
+}
