@@ -55,7 +55,7 @@ async function del(path, c) {
   const res = await fetch(`${baseUrl}${path}`, { method: 'DELETE', headers });
   const raw = await res.text();
   let body = null;
-  try { body = JSON.parse(raw); } catch { /* leave null */ }
+  try { body = JSON.parse(raw); } catch {}
   return { status: res.status, body };
 }
 

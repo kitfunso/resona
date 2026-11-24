@@ -24,7 +24,6 @@ test.after(async () => {
 async function authedReq(urlPath, { userId, orgId, cookie } = {}) {
   const headers = {};
   if (cookie === false) {
-    // explicit no-cookie case for the 401 test
   } else if (cookie) {
     headers.cookie = cookie;
   } else {

@@ -532,11 +532,11 @@ async function buzz({ kind }) {
     if (navigator.vibrate) {
       navigator.vibrate(kind === 'start' ? [180, 80, 180, 80, 180] : [280, 120, 280]);
     }
-  } catch { /* ignore */ }
+  } catch {}
   try {
     const ctx = getAudioContext();
     if (ctx.state !== 'running') {
-      try { await ctx.resume(); } catch { /* may reject silently on iOS */ }
+      try { await ctx.resume(); } catch {}
     }
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -664,7 +664,7 @@ function startAudioKeepalive() {
         gain.connect(ctx.destination);
         osc.start(now);
         osc.stop(now + 0.05);
-      } catch { /* ignore */ }
+      } catch {}
     };
     const id = setInterval(tick, 1000);
     tick();
@@ -716,7 +716,7 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
     // Unlock the AudioContext within the user-gesture window. Without this,
     // the Neuro-only flow (never touched Breath) has no unlocked audio and
     // iOS Safari blocks beeps. Safe to call multiple times, it's idempotent.
-    try { unlockAudio(); } catch { /* optional */ }
+    try { unlockAudio(); } catch {}
     try {
       const state = await requestMotionPermission();
       if (state !== 'granted') {

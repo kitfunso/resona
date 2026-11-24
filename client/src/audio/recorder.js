@@ -26,7 +26,7 @@ export function unlockAudio() {
     src.buffer = buf;
     src.connect(audioContextSingleton.destination);
     src.start(0);
-  } catch { /* ignore */ }
+  } catch {}
   if (audioContextSingleton.state === 'suspended') {
     audioContextSingleton.resume();
   }

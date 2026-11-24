@@ -184,7 +184,7 @@ export function extractFeatures(pcm, sampleRate) {
     peakEnv,
     peakTimeSec,
     rmsEnergy,
-    tauSec, // may be null if no clean decay
+    tauSec,
     formantHz,
     durationSec,
     activeSec50,

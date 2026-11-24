@@ -25,9 +25,9 @@ function perMetricBias(features) {
   const tailZ = clamp((tailRatio - 0.3) / 0.2, -1, 1);
 
   return {
-    fev1: 0.04 * peakTimingZ, // ±4%
-    pef:  0.06 * peakTimingZ, // ±6%, more sensitive to timing
-    fvc:  0.05 * tailZ,       // ±5% from tail shape
+    fev1: 0.04 * peakTimingZ,
+    pef:  0.06 * peakTimingZ,
+    fvc:  0.05 * tailZ,
   };
 }
 

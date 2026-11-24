@@ -33,7 +33,7 @@ await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 console.log(`static server on ${PAGE_URL}`);
 
 const browser = await chromium.launch({
-  headless: false, // headed avoids rAF/background throttling that would starve the capture loop
+  headless: false,
   args: [
     '--use-fake-device-for-media-stream',
     '--use-fake-ui-for-media-stream',

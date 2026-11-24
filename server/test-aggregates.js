@@ -118,7 +118,7 @@ async function getJson(path, cookie) {
   const res = await fetch(`${baseUrl}${path}`, { method: 'GET', headers });
   const body = await res.text();
   let parsed = null;
-  try { parsed = JSON.parse(body); } catch { /* leave null */ }
+  try { parsed = JSON.parse(body); } catch {}
   return { status: res.status, body: parsed, raw: body };
 }
 

@@ -163,7 +163,7 @@ export function analyseTremor({ samples, rate }) {
     sampleRate: targetHz,
     bands,
     dominantFrequencyHz: dominant.fHz,
-    classification, // physiological | essential_like | parkinsonian_like
+    classification,
     confidence: Number.isFinite(confidence) ? confidence : 0,
   };
 }
