@@ -1,19 +1,3 @@
-// GLM prompts for Resona. Each prompt is tailored to one stage of
-// the pipeline and returns strict JSON. The LLM never computes clinical
-// numbers, those are injected from the server-side regression.
-//
-// Ordering:
-//   1. EFFORT_CLASSIFIER  , was the blow valid?
-//   2. PERSONAL_REPORT    , warm plain-English summary (only if valid)
-//   3. GP_LETTER          , UK junior-doctor referral letter (only if valid)
-//   4. NARRATOR           , one-sentence projector hype (Phase 3)
-
-// Single source of truth for the demographics object every prompt builder
-// consumes. Returns the exact shape the builders read (ageYears, name, sex,
-// heightCm, ethnicity), computing age from the user's dob. The three analyze
-// handlers previously hand-built this with the wrong key (`age` instead of
-// `ageYears`) and never set `name`, so every LLM report silently received
-// ageYears:null / name:null.
 export function buildDemographics(user) {
   const ageYears = user?.dob
     ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
@@ -210,8 +194,6 @@ export function buildHeartReportUserMessage({ heart, demographics }) {
   });
 }
 
-// Helper to build the user-message data payload for each prompt.
-// Keeps all number injection server-side so the LLM never fabricates values.
 export function buildClassifierUserMessage({ features, estimate, demographics }) {
   return JSON.stringify({
     demographics: {

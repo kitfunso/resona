@@ -10,10 +10,6 @@ import {
   scrubReport,
 } from './reports.js';
 
-// Unit tests for the deterministic report layer (closes audit TEST-1/TEST-2:
-// the scrubber and the fallback generators were previously untested) and pins
-// the index.js -> reports.js extraction as behaviour-preserving.
-
 const reportShape = (r) => {
   assert.ok(typeof r.headline === 'string' && r.headline.length > 0, 'headline');
   assert.ok(typeof r.interpretation === 'string' && r.interpretation.length > 0, 'interpretation');
@@ -25,7 +21,6 @@ const reportShape = (r) => {
   assert.ok(typeof r.whenToWorry === 'string' && r.whenToWorry.length > 0, 'whenToWorry');
 };
 
-// --- scrubInternalTokens: every internal token must be replaced ---------------
 test('scrubInternalTokens replaces every internal classification token', () => {
   const tokens = [
     'parkinsonian_like', 'essential_like',
@@ -37,9 +32,7 @@ test('scrubInternalTokens replaces every internal classification token', () => {
     const out = scrubInternalTokens(`the reading shows ${tok} today`);
     assert.ok(!out.includes(tok), `token "${tok}" must be scrubbed, got: ${out}`);
   }
-  // 'physiological' only scrubbed when followed by punctuation/space boundary.
   assert.ok(!scrubInternalTokens('classification: physiological.').includes('physiological'));
-  // non-strings pass through untouched.
   assert.equal(scrubInternalTokens(42), 42);
   assert.equal(scrubInternalTokens(null), null);
 });
@@ -63,22 +56,19 @@ test('scrubReport mutates in place AND returns the same object, scrubbing all te
 test('scrubReport tolerates non-objects and missing fields', () => {
   assert.equal(scrubReport(null), null);
   assert.equal(scrubReport('x'), 'x');
-  const partial = { headline: 'tachycardia' }; // no actions array
+  const partial = { headline: 'tachycardia' };
   const out = scrubReport(partial);
   assert.ok(!out.headline.includes('tachycardia'));
 });
 
-// --- atsFlags -----------------------------------------------------------------
 test('atsFlags flags late peak and short exhalation independently', () => {
   assert.deepEqual(atsFlags({ peakTimeSec: 0.2, activeSec05: 5 }), []);
   assert.deepEqual(atsFlags({ peakTimeSec: 0.9, activeSec05: 5 }), ['peak_late']);
   assert.deepEqual(atsFlags({ peakTimeSec: 0.2, activeSec05: 2 }), ['short_exhalation']);
   assert.deepEqual(atsFlags({ peakTimeSec: 0.9, activeSec05: 2 }), ['peak_late', 'short_exhalation']);
-  // missing activeSec05 defaults to 0 -> short_exhalation.
   assert.deepEqual(atsFlags({ peakTimeSec: 0 }), ['short_exhalation']);
 });
 
-// --- classifierFallback: each invalid branch + the valid branch ---------------
 test('classifierFallback returns the right reason per branch', () => {
   const est = { effortScore: 0 };
   assert.equal(classifierFallback({ features: { activeSec05: 0.5, peakEnv: 1 }, estimate: est }).reason, 'short_duration');
@@ -94,7 +84,6 @@ test('classifierFallback returns the right reason per branch', () => {
   assert.ok(Array.isArray(ok.atsFlags), 'carries atsFlags');
 });
 
-// --- personalReportFallback: below / normal / above %predicted ----------------
 test('personalReportFallback branches on percent-predicted', () => {
   const mk = (fev1Pct) => personalReportFallback({
     estimate: { fev1: 3, fvc: 4, pef: 7, percentPredicted: { fev1: fev1Pct } },
@@ -108,17 +97,14 @@ test('personalReportFallback branches on percent-predicted', () => {
   assert.match(high.headline, /above the expected/i);
 });
 
-// --- neuroReportFallback: tremor classes --------------------------------------
 test('neuroReportFallback branches on tremor classification', () => {
   const park = neuroReportFallback({ tremor: { classification: 'parkinsonian_like', dominantFrequencyHz: 4 }, gait: null });
   const ess = neuroReportFallback({ tremor: { classification: 'essential_like', dominantFrequencyHz: 8 }, gait: null });
   const phys = neuroReportFallback({ tremor: { classification: 'physiological', dominantFrequencyHz: 6 }, gait: { cadence: 100, stridesCv: 0.2 } });
   reportShape(park); reportShape(ess); reportShape(phys);
-  // parkinsonian path must route the user to a GP.
   assert.ok(park.actions.some((a) => /GP/i.test(a.title) || /GP/i.test(a.detail)));
 });
 
-// --- heartReportFallback: HR classes ------------------------------------------
 test('heartReportFallback branches on hrClassification', () => {
   const tachy = heartReportFallback({ heart: { hrBpm: 120, hrClassification: 'tachycardia' } });
   const brady = heartReportFallback({ heart: { hrBpm: 45, hrClassification: 'bradycardia' } });

@@ -34,15 +34,9 @@ export const pool = new pg.Pool({
   connectionTimeoutMillis: 5_000,
 });
 
-// Arbitrary fixed key for the migration advisory lock. Any two processes
-// booting at once (e.g. rolling deploy) must serialise here so they don't
-// both try to apply the same migration file.
 const MIGRATION_LOCK_KEY = 4927713004;
 
 export async function migrate() {
-  // Hold a session-level advisory lock for the whole run on one dedicated
-  // client. A second process calling migrate() blocks on pg_advisory_lock
-  // until the first releases, then sees every migration already recorded.
   const lockClient = await pool.connect();
   try {
     await lockClient.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);

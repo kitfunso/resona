@@ -1,8 +1,6 @@
 import { json } from '../../_lib/http.js';
 import { issueSession, sessionCookieHeader } from '../../_lib/session.js';
 
-// POST /api/auth/guest — demo-only ephemeral sign-in. Get-or-create the 'demo'
-// org, mint a guest user, issue a session cookie. Gated on DEMO_MODE.
 export async function onRequestPost(context) {
   const { env } = context;
   if (env.DEMO_MODE !== 'true') return json({ error: 'not found' }, 404);

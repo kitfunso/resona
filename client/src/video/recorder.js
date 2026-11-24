@@ -1,15 +1,3 @@
-// Front-camera rPPG recorder. Exposes three functions:
-//   - acquireCameraPermission() prompts the OS dialog, then releases the stream
-//   - detectFirstFrameRoi(video) lazy-imports MediaPipe Tasks Vision and runs
-//     one face-detect pass; returns either { kind: 'face', rois } or { kind:
-//     'fallback', rois } after retries are exhausted by the caller
-//   - captureRppg({ video, durationMs, rois, onTick, onLiveHr }) reads ROI
-//     means per frame into a flat structure ready for features.js
-//
-// Privacy contract: the offscreen canvas used for sampling is module-scoped
-// and never appended to the DOM. Per-frame ImageData is consumed for its mean
-// RGB and released. Only the timestamped ROI means survive a capture.
-
 const TARGET_FPS = 30;
 const OFFSCREEN_FOREHEAD = { w: 32, h: 32 };
 const OFFSCREEN_CHEEKS = { w: 32, h: 16 };
@@ -57,8 +45,6 @@ async function getFaceDetector() {
   if (!faceDetectorPromise) {
     faceDetectorPromise = (async () => {
       const vision = await import('@mediapipe/tasks-vision');
-      // wasm served from /mediapipe/wasm by vite-config's mediapipeWasmPlugin,
-      // so demo-day face-detect doesn't depend on jsdelivr being reachable.
       const fileset = await vision.FilesetResolver.forVisionTasks('/mediapipe/wasm');
       return vision.FaceDetector.createFromOptions(fileset, {
         baseOptions: {
@@ -74,7 +60,6 @@ async function getFaceDetector() {
 }
 
 function roisFromBbox(bbox, videoW, videoH) {
-  // bbox is { originX, originY, width, height } in video pixels.
   const fw = bbox.width * 0.5;
   const fh = bbox.height * 0.2;
   const fx = bbox.originX + (bbox.width - fw) / 2;
@@ -86,7 +71,6 @@ function roisFromBbox(bbox, videoW, videoH) {
   const cxL = bbox.originX + bbox.width * 0.10;
   const cxR = bbox.originX + bbox.width * 0.65;
 
-  // Clamp to video bounds.
   const clamp = (x, y, w, h) => ({
     x: Math.max(0, Math.min(videoW - 1, x)),
     y: Math.max(0, Math.min(videoH - 1, y)),
@@ -103,7 +87,6 @@ function roisFromBbox(bbox, videoW, videoH) {
 }
 
 function fallbackRois(videoW, videoH) {
-  // Centred forehead-sized patch + a strip below it.
   const fw = videoW * 0.4;
   const fh = videoH * 0.18;
   const fx = (videoW - fw) / 2;
@@ -170,8 +153,6 @@ export async function captureRppg({ videoEl, durationMs, rois, onTick, onLiveHr,
     cheeks: { r: [], g: [], b: [] },
   };
 
-  // Live HR uses a rolling tail of the forehead-green channel and is
-  // intentionally rough; the final HR comes from features.js post-capture.
   const liveTailFrames = TARGET_FPS * 8;
 
   return new Promise((resolve, reject) => {
@@ -198,9 +179,7 @@ export async function captureRppg({ videoEl, durationMs, rois, onTick, onLiveHr,
       const elapsed = now - startMs;
       const pct = Math.min(1, elapsed / durationMs);
 
-      // Forehead mean.
       const fMean = drawRoiMean(foreheadCtx, videoEl, rois.forehead, OFFSCREEN_FOREHEAD.w, OFFSCREEN_FOREHEAD.h);
-      // Cheeks: draw both rectangles into the same strip so we get a combined mean.
       cheeksCtx.clearRect(0, 0, OFFSCREEN_CHEEKS.w, OFFSCREEN_CHEEKS.h);
       cheeksCtx.drawImage(videoEl,
         rois.cheekL.x, rois.cheekL.y, rois.cheekL.w, rois.cheekL.h,
@@ -224,7 +203,6 @@ export async function captureRppg({ videoEl, durationMs, rois, onTick, onLiveHr,
 
       if (onTick) onTick({ pct, elapsedMs: elapsed });
 
-      // Live HR every ~1s once we have at least 5s of samples.
       const nFrames = samples.t.length;
       if (onLiveHr && nFrames >= TARGET_FPS * 5 && nFrames % TARGET_FPS === 0) {
         const tailStart = Math.max(0, nFrames - liveTailFrames);
@@ -246,7 +224,6 @@ export async function captureRppg({ videoEl, durationMs, rois, onTick, onLiveHr,
 
       if (elapsed >= durationMs) {
         if (signal && abortListener) signal.removeEventListener('abort', abortListener);
-        // Convert per-channel JS arrays to Float32Array for downstream POS.
         resolve({
           samples: {
             t: Float32Array.from(samples.t),

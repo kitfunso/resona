@@ -7,13 +7,6 @@ import { pool, migrate } from './db.js';
 import { issueSession, SESSION_COOKIE } from './auth.js';
 import { requireAuth, requireOrgAdmin } from './middleware-auth.js';
 
-// Two probe routes:
-//   /probe        : composed correctly: requireAuth -> requireOrgAdmin -> handler
-//   /probe-bare   : DELIBERATELY without requireAuth, so we can exercise the
-//                   defensive `if (!req.auth?.userId)` branch in requireOrgAdmin.
-//
-// No cookie-parser middleware here: requireAuth's extractCookie fallback parses
-// req.headers.cookie directly when req.cookies isn't populated.
 function buildProbeApp() {
   const app = express();
   app.get('/probe', requireAuth, requireOrgAdmin, (req, res) => {
@@ -41,14 +34,11 @@ test.after(async () => {
   await pool.end();
 });
 
-// Seeds one org with a member + admin user pair, suffixed so cases don't collide.
-// Mirrors the seed(suffix) pattern in test-admin-endpoints.js.
 async function seed(suffix) {
   const orgSlug = `roa-test-${suffix}`;
   const memberEmail = `roa-member-${suffix}@example.com`;
   const adminEmail = `roa-admin-${suffix}@example.com`;
 
-  // Clean any residue.
   await pool.query(
     `DELETE FROM role_grants WHERE user_id IN (
        SELECT id FROM users WHERE lower(email) IN ($1, $2)
@@ -93,8 +83,6 @@ async function sessionCookie(user, org) {
   return `${SESSION_COOKIE}=${token}`;
 }
 
-// Captures console.info calls for the duration of `fn`. Restores the original
-// console.info on completion (including on throw).
 async function captureConsoleInfo(fn) {
   const captured = [];
   const original = console.info;
@@ -109,8 +97,6 @@ async function captureConsoleInfo(fn) {
   return captured;
 }
 
-// --- Case 1: no session cookie -> 401 from requireAuth (never reaches requireOrgAdmin).
-
 test('GET /probe without session cookie -> 401 from requireAuth', async () => {
   await seed('no-session');
   const res = await getRequest('/probe');
@@ -118,8 +104,6 @@ test('GET /probe without session cookie -> 401 from requireAuth', async () => {
   const body = await res.json();
   assert.equal(body.error, 'not authenticated');
 });
-
-// --- Case 2: member session -> 403 with [admin-deny] audit log line.
 
 test('GET /probe with member session -> 403 and audit log line', async () => {
   const { org, member } = await seed('member-deny');
@@ -133,8 +117,6 @@ test('GET /probe with member session -> 403 and audit log line', async () => {
   const body = await res.json();
   assert.equal(body.error, 'forbidden');
 
-  // Audit line: anchored on '[admin-deny]', user= matches the seeded member id
-  // (a real UUID, not the literal '<uuid>' placeholder), role=member, path=GET /probe.
   const denyLine = logs.find((line) => line.startsWith('[admin-deny]'));
   assert.ok(denyLine, `expected an [admin-deny] line, got: ${JSON.stringify(logs)}`);
   assert.ok(
@@ -148,8 +130,6 @@ test('GET /probe with member session -> 403 and audit log line', async () => {
   );
 });
 
-// --- Case 3: admin session -> 200 with pinned least-data req.currentUser.
-
 test('GET /probe with admin session -> 200 and pinned least-data currentUser', async () => {
   const { org, admin } = await seed('admin-pass');
   const cookie = await sessionCookie(admin, org);
@@ -159,7 +139,6 @@ test('GET /probe with admin session -> 200 and pinned least-data currentUser', a
   const body = await res.json();
   assert.equal(body.ok, true);
 
-  // Shape pinned: exactly these five keys, no special-category fields.
   const keys = Object.keys(body.currentUser).sort();
   assert.deepEqual(
     keys,
@@ -167,8 +146,6 @@ test('GET /probe with admin session -> 200 and pinned least-data currentUser', a
     `currentUser should expose only the least-data shape, got: ${JSON.stringify(keys)}`,
   );
 
-  // Negative-assertion: confirm the special-category fields loadCurrentUser
-  // returns are NOT leaking through. Art 5(1)(c) data minimisation.
   for (const forbidden of ['dob', 'height_cm', 'sex', 'ethnicity', 'email', 'name']) {
     assert.equal(
       body.currentUser[forbidden],
@@ -183,16 +160,10 @@ test('GET /probe with admin session -> 200 and pinned least-data currentUser', a
   assert.equal(body.currentUser.org_slug, org.slug);
 });
 
-// --- Case 4: stale session (user deleted post-mint) -> 401 'session no longer valid'.
-// JWTs are self-contained (server/auth.js::verifySession does not re-query users),
-// so the cookie still verifies after DELETE FROM users, and loadCurrentUser
-// returns null, exercising the stale-session branch.
-
 test('GET /probe with stale session (user deleted) -> 401 session no longer valid', async () => {
   const { org, admin } = await seed('stale');
   const cookie = await sessionCookie(admin, org);
 
-  // Delete the user mid-session. role_grants and check_ins cascade via FK.
   await pool.query('DELETE FROM users WHERE id = $1', [admin.id]);
 
   const res = await getRequest('/probe', { cookie });
@@ -201,10 +172,7 @@ test('GET /probe with stale session (user deleted) -> 401 session no longer vali
   assert.equal(body.error, 'session no longer valid');
 });
 
-// --- Case 5: defensive. requireOrgAdmin mounted without requireAuth -> 401.
-
 test('GET /probe-bare (no requireAuth upstream) -> 401 defensive', async () => {
-  // No need to seed; the defensive branch fires before any DB read.
   const res = await getRequest('/probe-bare');
   assert.equal(res.status, 401);
   const body = await res.json();

@@ -16,7 +16,6 @@
 // For non-Hankinson ethnicities (south_asian, east_asian, black_non_aa,
 // mixed_or_other) we route to Caucasian coefficients and disclose the
 // limitation in the generated GP letter.
-
 const HANKINSON = {
   caucasian: {
     male: {
@@ -56,8 +55,6 @@ const HANKINSON = {
   },
 };
 
-// Maps the 7-option ethnicity dropdown to which Hankinson coefficient set to use,
-// plus whether the coefficients are a direct match or a best-available fallback.
 const ETHNICITY_ROUTING = {
   caucasian:         { coeffs: 'caucasian',         directMatch: true  },
   african_american:  { coeffs: 'african_american',  directMatch: true  },

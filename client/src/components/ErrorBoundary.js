@@ -1,8 +1,5 @@
 import React from 'react';
 
-// App-level error boundary. A render or lifecycle throw in any child no longer
-// blanks the whole app; we show a recoverable fallback instead (audit FE-4).
-//
 // Written with React.createElement (no JSX) and a .js extension on purpose: the
 // client test harness runs `node --test`, which does not transpile JSX, so this
 // keeps the boundary importable and unit-testable while still working under Vite.
@@ -18,7 +15,6 @@ export default class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    // Diagnosis only. The error + component stack carry no user health data.
     console.error('[error-boundary]', error, info?.componentStack ?? '');
   }
 

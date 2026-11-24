@@ -458,10 +458,6 @@ function useCss() {
   }
 }
 
-// Last-resort client-side fallback when the server can't be reached at all
-// (network down, ngrok dropped, fetch timed out). Mirrors the shape of the
-// server response so ResultsView renders normally. User still gets numbers +
-// a plain-English report, just from a local template rather than the LLM.
 function buildLocalFallback(estimate, demographics, err) {
   const pp = Math.round(estimate.percentPredicted.fev1);
   const below = pp < 80;
@@ -525,7 +521,6 @@ function detectPlatform() {
 }
 
 function InstrumentTickRing() {
-  // 60 ticks around a circle (like a metronome / tachymeter bezel)
   const ticks = [];
   for (let i = 0; i < 60; i++) {
     const angle = (i / 60) * 2 * Math.PI - Math.PI / 2;
@@ -549,7 +544,6 @@ function InstrumentTickRing() {
   );
 }
 
-// Derive a demographics object from the stored user profile.
 function demographicsFromUser(user) {
   const ageYears = user.dob
     ? Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 86400 * 1000))
@@ -598,9 +592,6 @@ export default function ParticipantView({ user, onSignOut }) {
 
   async function handleBlow() {
     try {
-      // Permission already granted in handleArm; this tap is the user's
-      // deliberate "go" signal so recording starts on their cue, not on
-      // whatever moment the OS dialog happens to resolve.
       setStage('recording');
       setCountdown(Math.round(DURATION_MS / 1000));
 
@@ -667,8 +658,6 @@ export default function ParticipantView({ user, onSignOut }) {
   const armed = stage === 'armed';
   const disabled = stage === 'recording' || stage === 'analyzing';
   const platform = detectPlatform();
-  // Desktop users have no single mic position worth pointing at, they use a
-  // laptop lid or external mic. Hide the arrow there to avoid misleading cue.
   const showMicArrow = (stage === 'blow' || stage === 'armed' || stage === 'recording') && platform !== 'desktop';
 
   return (

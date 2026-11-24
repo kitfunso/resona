@@ -1,17 +1,3 @@
-"""Export submission/Resona.pptx to PDF using the installed PowerPoint app.
-
-Why PDF: every phone opens it natively, renders fonts correctly even if
-Alibaba PuHui 3.0 is not installed on the viewing device (embedded once
-the PDF is generated), and presents fullscreen in any PDF reader.
-
-Requires PowerPoint installed on Windows. Script drives it via COM.
-Opening the app is visible for a few seconds, which is fine.
-
-Usage:
-    python scripts/export_pptx_to_pdf.py
-    # writes submission/Resona.pdf
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,7 +9,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PPTX_PATH = REPO_ROOT / "submission" / "Resona.pptx"
 PDF_PATH = REPO_ROOT / "submission" / "Resona.pdf"
 
-# Microsoft.Office.Interop.PowerPoint.PpSaveAsFileType.ppSaveAsPDF = 32
 PP_SAVE_AS_PDF = 32
 
 
@@ -42,7 +27,6 @@ def main() -> None:
 
     try:
         print(f"loading {PPTX_PATH.name}...")
-        # WithWindow=0 keeps the presentation off-screen (faster, less noise).
         pres = app.Presentations.Open(str(PPTX_PATH), WithWindow=0)
         print(f"exporting to {PDF_PATH.name}...")
         pres.SaveAs(str(PDF_PATH), PP_SAVE_AS_PDF)

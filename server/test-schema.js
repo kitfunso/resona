@@ -86,8 +86,6 @@ test('check_ins composite FK rejects a cross-org row with code 23503 (DB-2)', as
     [orgAId],
   );
   const userId = u[0].id;
-  // The user belongs to org A; a check-in claiming org B has no (id, org_id)
-  // target in users and must violate the composite FK from migration 004.
   let caught;
   try {
     await pool.query(

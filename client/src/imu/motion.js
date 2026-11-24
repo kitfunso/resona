@@ -1,9 +1,6 @@
-// DeviceMotion capture for Resona Module 2 (Neuro).
-//
 // iOS 13+ requires an explicit permission request triggered from a user
 // gesture. Android/desktop browsers fire devicemotion events directly.
 // Typical iOS Safari sample rate is ~60 Hz; Android varies 50-100 Hz.
-
 function isIosPermissionApi() {
   return (
     typeof window !== 'undefined' &&
@@ -15,10 +12,9 @@ function isIosPermissionApi() {
 export async function requestMotionPermission() {
   if (!isIosPermissionApi()) return 'granted';
   const state = await window.DeviceMotionEvent.requestPermission();
-  return state; // 'granted' | 'denied'
+  return state;
 }
 
-// Returns { samples: [{ax, ay, az, t}], rate: approx Hz, duration: ms }.
 // Captures in accelerationIncludingGravity (most widely supported), which gives
 // us gravity-dominated vertical axis for gait and full magnitude for tremor.
 export async function captureMotion({ durationMs = 10000, onTick } = {}) {

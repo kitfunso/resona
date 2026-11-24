@@ -1,9 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { getCheckIns } from '../api.js';
 
-// CSS prefix is hsv- (history-view; hv- is taken by HeartView).
-// Mirrors the resona convention: const css at module scope,
-// cssInjected flag, useCss() hook called from the component.
 const css = `
   .hsv-stage {
     width: 100%;
@@ -324,8 +321,6 @@ const MODALITY_LABEL = {
   heart: 'Heart',
 };
 
-// Day-grouping buckets: Today, Yesterday, This week, Earlier.
-// Computed in the user's local zone via Date arithmetic.
 function startOfLocalDay(d) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -363,12 +358,10 @@ function formatLocalTime(iso) {
 export default function HistoryView({ onBack, onBreath, onHeart }) {
   useCss();
   const [stage, setStage] = useState('loading');
-  // 'loading' | 'empty' | 'list' | 'error'
   const [checkIns, setCheckIns] = useState([]);
   const [limit, setLimit] = useState(50);
   const [truncated, setTruncated] = useState(false);
   const [errorKind, setErrorKind] = useState(null);
-  // null | 'auth-expired' | 'network'
 
   const load = useCallback(async () => {
     setStage('loading');
@@ -390,7 +383,6 @@ export default function HistoryView({ onBack, onBreath, onHeart }) {
     load();
   }, [load]);
 
-  // ===== Loading =====
   if (stage === 'loading') {
     return (
       <section className="hsv-stage" aria-busy="true">
@@ -407,7 +399,6 @@ export default function HistoryView({ onBack, onBreath, onHeart }) {
     );
   }
 
-  // ===== Error =====
   if (stage === 'error') {
     const isAuth = errorKind === 'auth-expired';
     return (
@@ -442,7 +433,6 @@ export default function HistoryView({ onBack, onBreath, onHeart }) {
     );
   }
 
-  // ===== Empty =====
   if (stage === 'empty') {
     return (
       <section className="hsv-stage">
@@ -476,7 +466,6 @@ export default function HistoryView({ onBack, onBreath, onHeart }) {
     );
   }
 
-  // ===== List =====
   const now = new Date();
   const buckets = { today: [], yesterday: [], 'this-week': [], earlier: [] };
   for (const row of checkIns) {

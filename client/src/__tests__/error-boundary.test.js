@@ -2,10 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import ErrorBoundary from '../components/ErrorBoundary.js';
 
-// Unit tests for the app-level error boundary (audit FE-4). React.createElement
-// elements are plain objects, so the boundary's contract is testable without a
-// DOM renderer.
-
 test('getDerivedStateFromError flips to the error state and keeps the message', () => {
   const next = ErrorBoundary.getDerivedStateFromError(new Error('boom'));
   assert.equal(next.hasError, true);

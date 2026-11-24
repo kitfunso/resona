@@ -2,12 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeBlow, analyzeHeart, analyzeNeuro, getCheckIns, getSessionId } from '../api.js';
 
-// Privacy + behaviour tests for the API client (audit TEST-3). The headline
-// guarantee is the privacy boundary: only extracted NUMERIC features ever leave
-// the browser. These assert the request bodies carry exactly the allowed keys
-// and no raw-capture payload, using a mocked fetch (no DOM, no network).
-
-// api.js touches localStorage (session id) + global fetch in node.
 globalThis.localStorage = (() => {
   const m = new Map();
   return {
@@ -27,7 +21,6 @@ function captureFetch(captured, { ok = true, status = 200 } = {}) {
 
 const ALLOWED_BLOW = new Set(['features', 'estimate', 'demographics', 'sessionId']);
 const ALLOWED_HEART = new Set(['heart', 'demographics', 'sessionId']);
-// Keys that would indicate raw capture data crossing the boundary.
 const RAW_KEYS = ['audio', 'samples', 'pcm', 'waveform', 'frames', 'rgb', 'video', 'imageData', 'buffer', 'blob'];
 
 test('analyzeBlow sends only the numeric feature payload, no raw capture data', async () => {
@@ -48,7 +41,6 @@ test('analyzeBlow sends only the numeric feature payload, no raw capture data', 
   for (const raw of RAW_KEYS) {
     assert.ok(!flat.includes(`"${raw}"`), `raw-capture key leaked across the boundary: ${raw}`);
   }
-  // Body must be pure JSON (no binary): round-trips cleanly.
   assert.deepEqual(JSON.parse(JSON.stringify(cap.body)), cap.body);
 });
 

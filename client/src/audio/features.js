@@ -1,11 +1,4 @@
-// Feature extraction from a forced-exhalation PCM buffer.
 // Based on SpiroSmart (Goel et al., UbiComp 2012):
-//   - Envelope via rectified + low-pass (approximates |Hilbert transform|)
-//   - Peak envelope amplitude
-//   - Envelope decay time constant (tau) via exponential fit on the decay tail
-//   - RMS energy
-//   - First formant frequency via FFT peak-picking on the loud segment
-
 const TWO_PI = 2 * Math.PI;
 
 function rectify(pcm) {
@@ -14,7 +7,6 @@ function rectify(pcm) {
   return out;
 }
 
-// Single-pole low-pass. alpha = dt / (RC + dt), dt = 1/sampleRate.
 function lowPass(samples, sampleRate, cutoffHz = 20) {
   const rc = 1 / (TWO_PI * cutoffHz);
   const dt = 1 / sampleRate;
@@ -50,8 +42,6 @@ function argmax(samples) {
   return { value: maxVal, index: maxIdx };
 }
 
-// Fit an exponential decay y = A * exp(-t / tau) to the envelope AFTER its peak.
-// Linear regression on log(y) vs t, restricted to y > peakFraction * peak.
 function exponentialDecayTau(envelope, sampleRate, peakIdx, peakFraction = 0.1) {
   const peakVal = envelope[peakIdx];
   if (peakVal <= 0) return null;
@@ -65,7 +55,7 @@ function exponentialDecayTau(envelope, sampleRate, peakIdx, peakFraction = 0.1) 
     ts.push((i - peakIdx) / sampleRate);
     ys.push(Math.log(Math.max(v, 1e-12)));
   }
-  if (ts.length < 20) return null; // too few points
+  if (ts.length < 20) return null;
 
   const n = ts.length;
   const meanT = ts.reduce((a, b) => a + b, 0) / n;
@@ -78,12 +68,10 @@ function exponentialDecayTau(envelope, sampleRate, peakIdx, peakFraction = 0.1) 
   }
   if (den === 0) return null;
   const slope = num / den;
-  if (slope >= 0) return null; // not decaying
-  return -1 / slope; // tau in seconds
+  if (slope >= 0) return null;
+  return -1 / slope;
 }
 
-// Cooley–Tukey iterative FFT (radix-2). Input length must be power of 2.
-// Real input only; output is magnitudes (length = n/2).
 function fftMagnitude(realInput) {
   const n = realInput.length;
   if ((n & (n - 1)) !== 0) throw new Error('FFT length must be power of 2');
@@ -92,7 +80,6 @@ function fftMagnitude(realInput) {
   const im = new Float64Array(n);
   for (let i = 0; i < n; i++) re[i] = realInput[i];
 
-  // Bit reversal
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1;
     for (; j & bit; bit >>= 1) j ^= bit;
@@ -139,8 +126,6 @@ function nextPow2(n) {
   return p;
 }
 
-// Hann-windowed FFT peak pick in a voice range.
-// Returns Hz of the dominant spectral component, skipping DC (<60 Hz).
 function firstFormantHz(pcm, sampleRate, rangeHz = [60, 4000]) {
   const targetLen = Math.min(pcm.length, 16384);
   const start = Math.max(0, Math.floor((pcm.length - targetLen) / 2));
@@ -149,7 +134,7 @@ function firstFormantHz(pcm, sampleRate, rangeHz = [60, 4000]) {
   const nFft = nextPow2(targetLen);
   const windowed = new Float32Array(nFft);
   for (let i = 0; i < targetLen; i++) {
-    const w = 0.5 * (1 - Math.cos((TWO_PI * i) / (targetLen - 1))); // Hann
+    const w = 0.5 * (1 - Math.cos((TWO_PI * i) / (targetLen - 1)));
     windowed[i] = slice[i] * w;
   }
   const mags = fftMagnitude(windowed);
@@ -167,8 +152,6 @@ function firstFormantHz(pcm, sampleRate, rangeHz = [60, 4000]) {
   return peakIdx * binHz;
 }
 
-// Returns seconds the envelope stays above `threshold * peakEnv`.
-// AGC-proof: shape-based, not amplitude-based.
 function activeDurationAboveFraction(envelope, sampleRate, peakVal, fraction) {
   const threshold = peakVal * fraction;
   let samples = 0;
@@ -178,7 +161,6 @@ function activeDurationAboveFraction(envelope, sampleRate, peakVal, fraction) {
   return samples / sampleRate;
 }
 
-// Top-level feature extraction.
 export function extractFeatures(pcm, sampleRate) {
   if (pcm.length < sampleRate * 0.5) {
     throw new Error('recording too short (<0.5s)');
@@ -193,10 +175,6 @@ export function extractFeatures(pcm, sampleRate) {
   const formantHz = firstFormantHz(pcm, sampleRate);
   const durationSec = pcm.length / sampleRate;
 
-  // AGC-proof shape features: time envelope spends above fractions of its peak.
-  // Strong forced exhalation starts high and tapers (real physiology), so the
-  // 10% band captures the full tapered tail. The 50/20 bands are retained as
-  // secondary signals and for debug visibility.
   const activeSec50 = activeDurationAboveFraction(envelope, sampleRate, peakEnv, 0.5);
   const activeSec20 = activeDurationAboveFraction(envelope, sampleRate, peakEnv, 0.2);
   const activeSec10 = activeDurationAboveFraction(envelope, sampleRate, peakEnv, 0.1);

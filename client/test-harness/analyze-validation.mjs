@@ -1,8 +1,3 @@
-// Bland-Altman + error analysis for rPPG HR vs a reference device.
-// Reads the CSV exported by validate.html and reports agreement statistics.
-//
-// Usage: node client/test-harness/analyze-validation.mjs resona-validation.csv
-
 import fs from 'node:fs';
 
 const file = process.argv[2];
@@ -11,7 +6,6 @@ if (!file || !fs.existsSync(file)) {
   process.exit(2);
 }
 
-// Minimal CSV parse (handles quoted fields with commas).
 function parseCsv(text) {
   const lines = text.trim().split(/\r?\n/);
   const header = lines[0].split(',');
@@ -33,8 +27,6 @@ function parseCsv(text) {
 const all = parseCsv(fs.readFileSync(file, 'utf8'));
 const num = (x) => (x === '' || x == null ? NaN : Number(x));
 
-// The product only SHOWS a number for grade good/fair; 'poor' short-circuits to
-// coaching. Agreement is measured on what users would actually see.
 const shown = all.filter((r) => r.grade !== 'poor');
 const paired = shown.filter((r) => Number.isFinite(num(r.rppgHr)) && Number.isFinite(num(r.refHr)));
 
@@ -60,7 +52,6 @@ const loaHi = bias + 1.96 * sd;
 const within5 = (abs.filter((x) => x <= 5).length / abs.length) * 100;
 const within10 = (abs.filter((x) => x <= 10).length / abs.length) * 100;
 
-// Pearson r.
 const xs = paired.map((r) => num(r.refHr)), ys = paired.map((r) => num(r.rppgHr));
 const mx = mean(xs), my = mean(ys);
 let sxy = 0, sxx = 0, syy = 0;

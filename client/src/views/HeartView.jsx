@@ -358,7 +358,6 @@ export default function HeartView({ onBack, demographics }) {
       await prep(PREP_SECONDS, setPrepCount);
       if (signal.aborted) return;
 
-      // Detect face on the first usable frame.
       let det = await detectFirstFrameRoi(videoRef.current);
       let attempt = initialAttempt;
       while (det.kind === 'no-face' && attempt < MAX_FACE_RETRIES - 1 && !signal.aborted) {

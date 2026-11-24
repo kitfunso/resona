@@ -1,7 +1,3 @@
-// OpenAI-backed LLM client. Reads OPENAI_API_KEY from env. Exports the
-// same surface (askGLMJson, askGLMStream, isConfigured, MODEL) as the old
-// service so callers don't change.
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,8 +11,6 @@ const TRACE_PATH = path.join(ROOT_DIR, 'llm-trace.log');
 dotenv.config({ path: path.join(ROOT_DIR, '.env') });
 
 const API_KEY = process.env.OPENAI_API_KEY;
-// Optional override so the standard OpenAI SDK can target an OpenAI-compatible
-// endpoint (e.g. the local openclaw shim or OpenRouter). Unset = OpenAI direct.
 const BASE_URL = process.env.OPENAI_BASE_URL;
 export const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
 const DEFAULT_TEMPERATURE = 0.6;
@@ -37,9 +31,6 @@ const TRACE_ENABLED = process.env.LLM_TRACE === '1';
 const PII_KEYS = new Set(['dob', 'height_cm', 'heightCm', 'sex', 'ethnicity', 'name', 'email']);
 
 function redact(value) {
-  // Prompt builders JSON.stringify their payloads, so message `content` is a
-  // string. Parse it, redact the structure, and re-stringify — otherwise PII
-  // inside the string would pass through untouched.
   if (typeof value === 'string') {
     try {
       const parsed = JSON.parse(value);
@@ -102,9 +93,6 @@ export async function askGLMJson(messages, opts = {}) {
   }
 }
 
-// Retry wrapper around askGLMJson for the analyze-* handlers: up to 3 attempts
-// with linear backoff, retrying only transient failures (429 / connection /
-// timeout / reset). Lives here next to askGLMJson, its only dependency.
 export async function askGLMJsonWithRetry(messages, options) {
   const maxAttempts = 3;
   let lastErr = null;
@@ -132,8 +120,6 @@ export async function askGLMJsonWithRetry(messages, options) {
   throw lastErr;
 }
 
-// Kept for API compatibility; OpenAI streaming is not used by current callers.
 export const askGLMStream = askGLMText;
 
-// Legacy export kept for back-compat. Not used by new code.
 export const AUTH_PATH = null;

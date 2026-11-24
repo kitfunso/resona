@@ -478,7 +478,6 @@ export default function ResultsView({ estimate, analysis, onRetry, onStartOver, 
 
   return (
     <div className="rv-stage">
-      {/* Numbers instrument card */}
       <div className="rv-readings">
         <div className="rv-readings-hd">
           <span className="title">Your reading</span>
@@ -524,7 +523,6 @@ export default function ResultsView({ estimate, analysis, onRetry, onStartOver, 
         )}
       </div>
 
-      {/* Personal report */}
       {analysis?.personalReport && (
         <div className="rv-report">
           <div className="rv-report-hd">

@@ -1,9 +1,3 @@
-// Minimal HS256 JWT for the Workers/Pages runtime, using Web Crypto only (no
-// node deps, no `jose` bundling). Matches the old Express server's session
-// contract: HS256 over { userId, orgId, iat, exp } signed with SESSION_SECRET.
-// Tokens are freshly issued by these Functions, so cross-compat with the old
-// server's tokens is neither needed nor attempted.
-
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 

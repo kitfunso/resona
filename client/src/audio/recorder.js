@@ -1,7 +1,5 @@
-// MediaRecorder wrapper for forced-exhalation capture.
 // iOS Safari constraint: AudioContext must be created from a direct user gesture.
 // Call `unlockAudio()` from a button onClick handler before the first capture.
-
 let audioContextSingleton = null;
 
 export function unlockAudio() {
@@ -55,27 +53,16 @@ async function getUserMediaStream() {
   return navigator.mediaDevices.getUserMedia(constraints);
 }
 
-// Trigger the mic permission dialog in isolation, then release the stream.
-// Call this from the user tap, BEFORE any countdown, so the OS prompt does
-// not pop mid-countdown. The permission grant is sticky for the page session,
-// so recordBlow() below gets an instant stream after this resolves.
 export async function acquireMicPermission() {
   const stream = await getUserMediaStream();
   stream.getTracks().forEach((t) => t.stop());
 }
 
-// Records `durationMs` of raw mono PCM from the mic.
-// Returns { pcm: Float32Array, sampleRate: number }.
-//
-// onTick(pct, elapsedMs) fires ~10 Hz with recording progress.
-// onLevel(peak) fires ~60 Hz with instantaneous mic level in [0, 1]. Use for
-// a live VU meter so the user can see their blow is actually being captured.
 export async function recordBlow({ durationMs = 6000, onTick, onLevel } = {}) {
   const ctx = getAudioContext();
   const stream = await getUserMediaStream();
   const source = ctx.createMediaStreamSource(stream);
 
-  // Live level monitoring via an AnalyserNode tapped off the mic source.
   let analyser = null;
   let levelRaf = null;
   if (onLevel) {

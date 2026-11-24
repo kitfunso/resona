@@ -4,14 +4,6 @@
   <body>
     <video id="v" autoplay playsinline muted style="width:128px;height:96px"></video>
     <pre id="log">starting</pre>
-    <!--
-      Drives the REAL client capture path (recorder.js: getUserMedia -> fallback
-      ROIs -> captureRppg's per-frame drawImage/getImageData ROI means) against a
-      fake camera, then runs the real features.js extraction. This is the only
-      coverage of the camera->canvas->ROI seam, which the node unit tests cannot
-      reach. Face detection is skipped on purpose (synthetic frame has no face),
-      so we use buildFallbackRois directly and avoid the MediaPipe model download.
-    -->
     <script type="module">
       import { captureRppg, buildFallbackRois } from '../src/video/recorder.js';
       import { extractHeartFeatures } from '../src/video/features.js';

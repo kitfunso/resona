@@ -31,7 +31,6 @@ export async function sendEmail({ to, subject, text, html }) {
   if (sender) {
     return sender({ to, subject, text, html });
   }
-  // Dev fallback: append to dev-emails/log.json + log to console.
   fs.mkdirSync(LOG_DIR, { recursive: true });
   const existing = fs.existsSync(LOG_PATH)
     ? JSON.parse(fs.readFileSync(LOG_PATH, 'utf8'))

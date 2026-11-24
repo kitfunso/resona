@@ -1,6 +1,3 @@
-// D1 data access. The user shape returned here is the same snake_case contract
-// the client consumes (height_cm, dob, sex, ethnicity, org_id, ...).
-
 export async function loadCurrentUser(env, userId) {
   return await env.DB.prepare(
     `SELECT u.id, u.email, u.name, u.dob, u.height_cm, u.sex, u.ethnicity,

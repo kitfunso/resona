@@ -2,8 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computePosSignal } from '../pos.js';
 
-// Synthesise 30 s of 30 fps RGB samples for one ROI with a 1.2 Hz pulse
-// modulating the green channel by 0.5%. R and B carry only DC.
 function syntheticRgb({ pulseHz = 1.2, fps = 30, durationSec = 30, amplitude = 0.005 }) {
   const n = fps * durationSec;
   const r = new Float32Array(n);
@@ -20,7 +18,6 @@ function syntheticRgb({ pulseHz = 1.2, fps = 30, durationSec = 30, amplitude = 0
 }
 
 function dominantFrequencyHz(signal, fps) {
-  // Tiny DFT over 0.7-4 Hz, brute force, for test-only.
   const n = signal.length;
   let bestHz = 0;
   let bestMag = -Infinity;

@@ -1,9 +1,3 @@
--- D1 (SQLite) schema for the demo path. Ported from the Postgres migrations
--- 001/002 (orgs, users, check_ins). UUIDs are generated in code
--- (crypto.randomUUID()); timestamps are stored as ISO-8601 TEXT. The OTP/admin
--- tables (auth_codes, role_grants, teams, ...) are intentionally omitted — the
--- public deployment is guest-demo only.
-
 CREATE TABLE IF NOT EXISTS orgs (
   id         TEXT PRIMARY KEY,
   slug       TEXT NOT NULL UNIQUE,

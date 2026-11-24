@@ -33,8 +33,6 @@ export async function logout() {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
 }
 
-// Demo-only: start an ephemeral guest session (no email). Server gates this on
-// DEMO_MODE; fetchHealth().demo tells the UI whether to offer it.
 export async function startGuestSession() {
   const resp = await fetch('/api/auth/guest', { method: 'POST', credentials: 'include' });
   if (!resp.ok) throw new Error('guest start failed');

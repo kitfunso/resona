@@ -534,21 +534,19 @@ async function buzz({ kind }) {
     }
   } catch { /* ignore */ }
   try {
-    const ctx = getAudioContext(); // throws if not unlocked yet
+    const ctx = getAudioContext();
     if (ctx.state !== 'running') {
       try { await ctx.resume(); } catch { /* may reject silently on iOS */ }
     }
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'square'; // square wave cuts through ambient noise better than sine
+    osc.type = 'square';
     if (kind === 'start') {
-      // Three rising chirps, ~180ms each with 80ms gaps. Total ~0.80s.
       osc.frequency.setValueAtTime(880, now);
       osc.frequency.setValueAtTime(1100, now + 0.26);
       osc.frequency.setValueAtTime(1320, now + 0.52);
     } else {
-      // Two descending chirps, ~220ms each. Total ~0.60s.
       osc.frequency.setValueAtTime(660, now);
       osc.frequency.setValueAtTime(440, now + 0.26);
     }
@@ -576,21 +574,20 @@ function makeBeepDataURI({ freq = 1100, durationMs = 700, volume = 0.8 } = {}) {
   const bytes = 44 + samples * 2;
   const buf = new ArrayBuffer(bytes);
   const dv = new DataView(buf);
-  dv.setUint32(0, 0x52494646, false);       // "RIFF"
+  dv.setUint32(0, 0x52494646, false);
   dv.setUint32(4, bytes - 8, true);
-  dv.setUint32(8, 0x57415645, false);       // "WAVE"
-  dv.setUint32(12, 0x666d7420, false);      // "fmt "
+  dv.setUint32(8, 0x57415645, false);
+  dv.setUint32(12, 0x666d7420, false);
   dv.setUint32(16, 16, true);
-  dv.setUint16(20, 1, true);                // PCM
-  dv.setUint16(22, 1, true);                // mono
+  dv.setUint16(20, 1, true);
+  dv.setUint16(22, 1, true);
   dv.setUint32(24, sampleRate, true);
   dv.setUint32(28, sampleRate * 2, true);
   dv.setUint16(32, 2, true);
   dv.setUint16(34, 16, true);
-  dv.setUint32(36, 0x64617461, false);      // "data"
+  dv.setUint32(36, 0x64617461, false);
   dv.setUint32(40, samples * 2, true);
   for (let i = 0; i < samples; i++) {
-    // Square wave for max perceived loudness, with a short attack/decay envelope.
     const t = i / sampleRate;
     const env = Math.min(1, t / 0.01, (durationMs / 1000 - t) / 0.04);
     const phase = ((freq * t) % 1) < 0.5 ? 1 : -1;
@@ -612,14 +609,12 @@ function playBackupBeep() {
       beepAudioEl.setAttribute('playsinline', 'true');
     }
     beepAudioEl.currentTime = 0;
-    return beepAudioEl.play(); // Promise
+    return beepAudioEl.play();
   } catch (e) {
     return Promise.reject(e);
   }
 }
 
-// Fires both paths and returns a short diagnostic string for on-screen display.
-// ctx state is read AFTER buzz so we know what iOS did with resume().
 async function testSoundDiag() {
   let ctxBefore = 'none';
   let ctxAfter = 'none';
@@ -663,7 +658,7 @@ function startAudioKeepalive() {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.value = 20; // sub-audible
+        osc.frequency.value = 20;
         gain.gain.setValueAtTime(0.0001, now);
         osc.connect(gain);
         gain.connect(ctx.destination);
@@ -695,7 +690,7 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
   const [error, setError] = useState(null);
   const [report, setReport] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
-  const [flash, setFlash] = useState(null); // 'go' | 'stop' | null
+  const [flash, setFlash] = useState(null);
   const [soundDiag, setSoundDiag] = useState(null);
 
   async function fetchReport(currentTremor, currentGait) {
@@ -743,8 +738,6 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
   }
 
   async function fireCue(kind) {
-    // Fire both paths in parallel. If WebAudio is blocked, HTML5 Audio may
-    // still play. If HTML5 Audio is blocked, WebAudio may still play.
     await Promise.allSettled([buzz({ kind }), playBackupBeep()]);
   }
 
@@ -802,7 +795,6 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
         <p className="sub">Stillness plus gait, ten seconds each. Screening only, not diagnostic.</p>
       </div>
 
-      {/* Test 1: Stillness */}
       <section className="nv-step" data-state={tremorState}>
         {flash && (tremorState === 'active') && (
           <div className="nv-flash" data-k={flash}>
@@ -913,7 +905,6 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
         )}
       </section>
 
-      {/* Test 2: Gait */}
       {(stage === 'tremor_done' || stage === 'gait_prep' || stage === 'gait_record' || stage === 'gait_done') && (
         <section className="nv-step" data-state={gaitState}>
           {flash && (gaitState === 'active') && (
@@ -984,7 +975,6 @@ export default function NeuroView({ onBack, demographics, onHeart }) {
         </section>
       )}
 
-      {/* Neuro report */}
       {stage === 'gait_done' && reportLoading && (
         <div className="nv-report">
           <div className="nv-analyzing">

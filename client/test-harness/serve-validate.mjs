@@ -1,10 +1,3 @@
-// Serve the real-camera accuracy-validation page on localhost (a secure context,
-// so getUserMedia works without HTTPS). Open the printed URL on THIS machine to
-// use the laptop webcam. To validate on a phone (the real product form factor),
-// expose it over HTTPS instead, e.g.  ngrok http 5198  and open the https URL.
-//
-// Usage: node client/test-harness/serve-validate.mjs   (Ctrl-C to stop)
-
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';

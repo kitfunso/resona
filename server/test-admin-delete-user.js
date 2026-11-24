@@ -6,17 +6,10 @@ import { app } from './index.js';
 import { pool, migrate } from './db.js';
 import { issueSession, SESSION_COOKIE } from './auth.js';
 
-// Tests for DELETE /api/admin/users/:id (PRIV-2 right-to-erasure).
-// Session-RBAC route: an org admin may erase users only within their own org;
-// the ON DELETE CASCADE chain must purge the user's check_ins + memberships.
-
 let server;
 let baseUrl;
 
 test.before(async () => {
-  // Skip adminLimiter (per-IP cap trips on same-process throughput). The
-  // limiter's skip predicate is () => NODE_ENV === 'test', re-evaluated per
-  // request. Production never sets NODE_ENV=test.
   process.env.NODE_ENV = 'test';
   await migrate();
   server = http.createServer(app);
@@ -30,9 +23,6 @@ test.after(async () => {
 });
 
 async function seedOrg(slug, name) {
-  // Clean dependent rows so reruns are isolated. teams are org-scoped (not
-  // user-scoped), so they do NOT cascade from the users delete; drop them and
-  // their memberships explicitly or a second run collides on teams_org_name_idx.
   await pool.query(`DELETE FROM team_memberships WHERE org_id IN (SELECT id FROM orgs WHERE slug = $1)`, [slug]);
   await pool.query(`DELETE FROM teams WHERE org_id IN (SELECT id FROM orgs WHERE slug = $1)`, [slug]);
   await pool.query(

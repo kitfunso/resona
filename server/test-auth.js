@@ -9,7 +9,6 @@ const TEST_EMAIL = 'auth-test@example.com';
 
 test.before(async () => {
   await migrate();
-  // Provision an org + user we can authenticate as.
   const { rows: orgs } = await pool.query(
     "INSERT INTO orgs (slug, name) VALUES ('test-co', 'Test Co') ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name RETURNING id",
   );

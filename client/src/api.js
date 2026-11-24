@@ -1,7 +1,3 @@
-// Tiny fetch wrapper with 1 retry on network errors.
-// The server-side endpoint handles GLM retries; this handles
-// the client → server hop.
-
 async function postJson(path, body, { retries = 1, timeoutMs = 35000 } = {}) {
   let lastErr = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -25,11 +21,9 @@ async function postJson(path, body, { retries = 1, timeoutMs = 35000 } = {}) {
       clearTimeout(timer);
       lastErr = err;
       if (err.name === 'AbortError') {
-        // timeout, retry if we have budget
         if (attempt < retries) continue;
         throw new Error('Analysis timed out. Try again.');
       }
-      // Network-level errors: retry once
       if (attempt < retries && (err.message || '').toLowerCase().includes('fetch')) continue;
       throw err;
     }
@@ -37,7 +31,6 @@ async function postJson(path, body, { retries = 1, timeoutMs = 35000 } = {}) {
   throw lastErr ?? new Error('postJson failed');
 }
 
-// Stable per-device id, generated once and persisted in localStorage.
 const SESSION_KEY = 'resona:sessionId';
 function newSessionId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -73,14 +66,10 @@ export function analyzeHeart({ heart, demographics }) {
   });
 }
 
-// analyze-neuro takes no sessionId (the server does not record one for motion);
-// routing it through postJson gives it the same retry + timeout as blow/heart.
 export function analyzeNeuro({ tremor, gait, demographics }) {
   return postJson('/api/analyze-neuro', { tremor, gait, demographics });
 }
 
-// GET helper. Throws an Error tagged with `.kind` ('auth-expired' | 'network')
-// so callers can branch on auth-vs-other failures without re-checking statuses.
 async function getJson(path, { timeoutMs = 35000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

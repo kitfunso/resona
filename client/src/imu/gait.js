@@ -1,13 +1,3 @@
-// Gait analysis from accelerometer samples during a short walk.
-//
-// Participant puts phone in trouser/jacket pocket and walks ~10 steps.
-// We detect steps via peak detection on the vertical (gravity-dominant)
-// component of acceleration. Output: stride times, cadence, variance,
-// rough symmetry.
-//
-// Screening only. Real gait analysis needs ground truth from wearables or
-// pressure mats. This is a demo-grade approximation.
-
 function mean(xs) {
   if (xs.length === 0) return 0;
   let s = 0;
@@ -23,8 +13,6 @@ function std(xs) {
   return Math.sqrt(s / (xs.length - 1));
 }
 
-// Resample to uniform grid, same helper as tremor.js (kept local so
-// modules don't depend on each other).
 function resampleUniform(samples, valueFn, targetHz) {
   if (samples.length < 2) return { ts: [], vs: [] };
   const t0 = samples[0].t;
@@ -47,7 +35,6 @@ function resampleUniform(samples, valueFn, targetHz) {
   return { ts, vs };
 }
 
-// Low-pass via single-pole exponential smoothing.
 function lowPass(xs, sampleRateHz, cutoffHz) {
   const dt = 1 / sampleRateHz;
   const rc = 1 / (2 * Math.PI * cutoffHz);
@@ -61,7 +48,6 @@ function lowPass(xs, sampleRateHz, cutoffHz) {
   return out;
 }
 
-// Peak detection with a minimum spacing (refractory period in samples).
 function findPeaks(xs, ts, minSpacingMs, minHeight) {
   const peaks = [];
   const n = xs.length;
@@ -80,8 +66,6 @@ function findPeaks(xs, ts, minSpacingMs, minHeight) {
 export function analyseGait({ samples, rate }) {
   const targetHz = Math.max(50, Math.min(100, Math.round(rate || 60)));
 
-  // Vertical axis varies with how the phone sits in a pocket. Use total
-  // acceleration magnitude minus mean (gravity) as the step-energy signal.
   const { ts, vs } = resampleUniform(
     samples,
     (s) => Math.sqrt(s.ax * s.ax + s.ay * s.ay + s.az * s.az),
@@ -92,12 +76,9 @@ export function analyseGait({ samples, rate }) {
   const detrended = new Float32Array(vs.length);
   for (let i = 0; i < vs.length; i++) detrended[i] = Math.abs(vs[i] - mu);
 
-  // Smooth to remove high-frequency jitter. Walking is typically 1.5-2.5 Hz.
   const smoothed = lowPass(detrended, targetHz, 5);
 
-  // Minimum stride time: very fast walk is ~0.4s between steps.
   const minSpacingMs = 300;
-  // Minimum peak height: relative to the signal's own standard deviation.
   const threshold = std(smoothed) * 0.8;
 
   const peaks = findPeaks(smoothed, ts, minSpacingMs, threshold);
@@ -110,9 +91,7 @@ export function analyseGait({ samples, rate }) {
   const meanStrideMs = mean(strideTimesMs);
   const strideStdMs = std(strideTimesMs);
   const stridesCv = meanStrideMs > 0 ? strideStdMs / meanStrideMs : 0;
-  const cadence = meanStrideMs > 0 ? 60000 / meanStrideMs : 0; // steps per minute
-
-  // Crude left/right symmetry: split stride times into odd/even, compare means.
+  const cadence = meanStrideMs > 0 ? 60000 / meanStrideMs : 0;
   const odd = strideTimesMs.filter((_, i) => i % 2 === 0);
   const even = strideTimesMs.filter((_, i) => i % 2 === 1);
   const mOdd = mean(odd);

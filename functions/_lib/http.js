@@ -1,9 +1,4 @@
-// Tiny HTTP helpers shared by the Pages Functions.
-
 export function json(obj, status = 200, extraHeaders = {}) {
-  // no-store: these are dynamic, per-session responses (health flags, the
-  // current user, check-in history). The Cloudflare edge must never cache them
-  // — a stale /health would hide the guest button and break the demo.
   return new Response(JSON.stringify(obj), {
     status,
     headers: {

@@ -1,18 +1,3 @@
-// server/reports.js
-//
-// The deterministic (LLM-free) report layer for the analyze-* endpoints,
-// extracted verbatim from index.js. Holds everything that produces or
-// sanitises report content WITHOUT calling the model:
-//   - atsFlags / classifierFallback: blow effort-quality heuristics
-//   - personalReportFallback / neuroReportFallback / heartReportFallback:
-//     offline reports used when the LLM is unreachable or returns junk
-//   - scrubInternalTokens / scrubReport: belt-and-braces output sanitiser
-//
-// These are pure functions of their arguments (no DB, no app, no prompt
-// constants). scrubReport MUTATES its argument in place AND returns it;
-// callers rely on the in-place mutation (they call it statement-position),
-// so do not change it to return-only.
-
 // ATS 2019 informational flags (feasible subset on phone audio).
 // - ATS says PEF should occur within 120ms of exhalation onset. Our peak-time
 //   can't reliably resolve sub-120ms because the envelope is low-pass filtered
@@ -250,9 +235,6 @@ export function heartReportFallback({ heart }) {
   };
 }
 
-// Defensive scrub: strip internal classification tokens that should never
-// appear in user-facing narrative. Belt-and-braces against GLM ignoring the
-// "never echo these tokens" rule in the system prompt.
 export function scrubInternalTokens(str) {
   if (typeof str !== 'string') return str;
   return str
@@ -266,8 +248,6 @@ export function scrubInternalTokens(str) {
     .replace(/\b(low_snr|few_frames|few_beats|hr_methods_disagree|no_peak|fallback_roi)\b/gi, 'a noisy reading');
 }
 
-// Mutates `report` in place AND returns it. Callers invoke it statement-position
-// and rely on the mutation; preserve both behaviours.
 export function scrubReport(report) {
   if (!report || typeof report !== 'object') return report;
   if (report.headline) report.headline = scrubInternalTokens(report.headline);

@@ -3,9 +3,6 @@ import { getAuth } from '../_lib/session.js';
 import { loadCurrentUser, insertCheckIn } from '../_lib/db.js';
 import { buildDemographics, atsFlags, classifierFallback, personalReportFallback } from '../_lib/reports.js';
 
-// POST /api/analyze-blow — breath screen. Demographics are derived from the DB
-// user, never from the request body. The LLM upstream is unreachable on the
-// edge, so the deterministic fallback report is used directly.
 export async function onRequestPost(context) {
   const { env } = context;
   const auth = await getAuth(context);

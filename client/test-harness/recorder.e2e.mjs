@@ -1,15 +1,3 @@
-// End-to-end browser test for the rPPG capture path (recorder.js) using a fake
-// camera fed a synthetic pulsatile Y4M. Validates the camera->canvas->ROI-mean
-// seam the node unit tests cannot reach, end-to-end into features.js.
-//
-// Self-contained: serves the client/ dir over a short-lived static server (the
-// pipeline modules use only relative imports, so no vite/bundler is needed),
-// launches Chromium with a fake camera, runs one capture, asserts the recovered
-// HR matches the synthetic video.
-//
-// Prereq: `node client/test-harness/make-rppg-y4m.mjs` (writes the Y4M).
-// Usage:  node client/test-harness/recorder.e2e.mjs
-
 import { chromium } from 'playwright';
 import http from 'node:http';
 import path from 'node:path';

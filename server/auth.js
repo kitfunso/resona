@@ -4,8 +4,8 @@ import { SignJWT, jwtVerify } from 'jose';
 import { pool } from './db.js';
 import { sendEmail } from './email.js';
 
-const CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const SESSION_TTL_SEC = 60 * 60 * 24 * 30; // 30 days
+const CODE_TTL_MS = 10 * 60 * 1000;
+const SESSION_TTL_SEC = 60 * 60 * 24 * 30;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET || SESSION_SECRET.length < 32) {
   throw new Error('SESSION_SECRET must be set and at least 32 chars');
@@ -13,7 +13,6 @@ if (!SESSION_SECRET || SESSION_SECRET.length < 32) {
 const SECRET_BYTES = new TextEncoder().encode(SESSION_SECRET);
 
 function generateCode() {
-  // 6 digits, zero-padded, cryptographically random.
   const n = crypto.randomInt(0, 1_000_000);
   return n.toString().padStart(6, '0');
 }
@@ -25,7 +24,6 @@ export async function requestCode(email) {
     [normalized],
   );
   if (rows.length === 0) {
-    // Burn matching CPU so response time doesn't reveal whether the email is registered.
     await bcrypt.hash(generateCode(), 10);
     return;
   }

@@ -1,15 +1,3 @@
-// Tremor analysis from accelerometer samples.
-//
-// Stillness test: user holds phone at arm's length for ~10s. We compute
-// acceleration magnitude minus gravity, detrend, FFT, and report power in
-// four bands:
-//   0.5-4 Hz  — not tremor (voluntary movement / postural drift)
-//   4-6 Hz    — Parkinsonian tremor (rest tremor)
-//   6-12 Hz   — essential tremor / kinetic tremor
-//   12-20 Hz  — physiological tremor (normal muscle activity)
-//
-// Screening only. The output IS NOT diagnostic.
-
 const TWO_PI = 2 * Math.PI;
 
 function mean(xs) {
@@ -25,7 +13,6 @@ function nextPow2(n) {
   return p;
 }
 
-// Radix-2 Cooley-Tukey FFT on real input, returns magnitudes (n/2 bins).
 function fftMagnitude(realInput) {
   const n = realInput.length;
   if ((n & (n - 1)) !== 0) throw new Error('FFT length must be power of 2');
@@ -74,8 +61,6 @@ function fftMagnitude(realInput) {
   return mags;
 }
 
-// Resample an irregular time series to a regular grid at `targetHz`.
-// DeviceMotion samples aren't perfectly uniform; we linearly interpolate.
 function resampleUniform(samples, valueFn, targetHz) {
   if (samples.length < 2) return new Float32Array(0);
   const t0 = samples[0].t;
@@ -96,8 +81,6 @@ function resampleUniform(samples, valueFn, targetHz) {
   return out;
 }
 
-// Bandpass power: sum of |FFT[k]|^2 over bins whose centre frequency
-// lies in [loHz, hiHz]. Returns absolute power (unnormalised).
 function bandPower(mags, binHz, loHz, hiHz) {
   let p = 0;
   for (let i = 0; i < mags.length; i++) {
@@ -121,23 +104,19 @@ function argmaxBin(mags, binHz, loHz, hiHz) {
   return { fHz: maxIdx < 0 ? null : maxIdx * binHz, power: maxVal };
 }
 
-// Main entry — takes motion.captureMotion() output, returns classification.
 export function analyseTremor({ samples, rate }) {
   const targetHz = Math.max(50, Math.min(100, Math.round(rate || 60)));
 
-  // Acceleration magnitude removes orientation dependence (vs. single-axis).
   const magnitude = resampleUniform(
     samples,
     (s) => Math.sqrt(s.ax * s.ax + s.ay * s.ay + s.az * s.az),
     targetHz,
   );
 
-  // Detrend: subtract mean (gravity ~9.81 m/s^2 contribution).
   const mu = mean(magnitude);
   const detrended = new Float32Array(magnitude.length);
   for (let i = 0; i < magnitude.length; i++) detrended[i] = magnitude[i] - mu;
 
-  // Window (Hann) then FFT.
   const nFft = nextPow2(detrended.length);
   const windowed = new Float32Array(nFft);
   const nSrc = detrended.length;
@@ -148,9 +127,6 @@ export function analyseTremor({ samples, rate }) {
   const mags = fftMagnitude(windowed);
   const binHz = targetHz / nFft;
 
-  // Non-overlapping bands with a small guard around clinical boundaries so a
-  // healthy user whose arm drift lands at exactly 6 Hz doesn't accidentally
-  // get flagged "Parkinsonian".
   const bands = {
     voluntary_0p5_3:    bandPower(mags, binHz, 0.5, 3),
     parkinsonian_3_5p5: bandPower(mags, binHz, 3, 5.5),
@@ -162,14 +138,6 @@ export function analyseTremor({ samples, rate }) {
     bands.parkinsonian_3_5p5 + bands.essential_5p5_11 + bands.physiological_11_20;
   const dominant = argmaxBin(mags, binHz, 3, 20);
 
-  // Screening rule of thumb, NOT clinical:
-  //   - Most healthy adults holding a phone for 10s have no dominant tremor
-  //     signature. Default to "physiological" unless a suspect band clearly
-  //     dominates the other two by at least 2x (Parkinsonian) or 1.6x
-  //     (essential-like).
-  //   - If voluntary low-frequency drift (< 3 Hz) outpowers all three tremor
-  //     bands, the person was swaying their arm, not tremoring. Call it
-  //     physiological too.
   let classification = 'physiological';
   let confidence = 0.5;
   const p = bands.parkinsonian_3_5p5;

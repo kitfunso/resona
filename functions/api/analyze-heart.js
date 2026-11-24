@@ -3,7 +3,6 @@ import { getAuth } from '../_lib/session.js';
 import { loadCurrentUser, insertCheckIn } from '../_lib/db.js';
 import { buildDemographics, heartReportFallback, scrubReport } from '../_lib/reports.js';
 
-// POST /api/analyze-heart — heart screen (camera rPPG result in the body).
 export async function onRequestPost(context) {
   const { env } = context;
   const auth = await getAuth(context);

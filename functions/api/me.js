@@ -8,7 +8,6 @@ const ETHNICITY_VALUES = new Set([
   'South Asian', 'Southeast Asian', 'Middle Eastern', 'Indigenous', 'Mixed', 'Other',
 ]);
 
-// GET /api/me
 export async function onRequestGet(context) {
   const auth = await getAuth(context);
   if (!auth) return json({ error: 'not authenticated' }, 401);
@@ -17,8 +16,6 @@ export async function onRequestGet(context) {
   return json({ user });
 }
 
-// PATCH /api/me — partial profile update. Validation mirrors the old server:
-// unknown / malformed fields are ignored rather than rejected.
 export async function onRequestPatch(context) {
   const auth = await getAuth(context);
   if (!auth) return json({ error: 'not authenticated' }, 401);

@@ -1,30 +1,16 @@
-// Heart-rate and heart-rate-variability extraction from per-frame RGB samples.
-// Pipeline:
-//   1. Resample timestamped RGB to a uniform 30 Hz grid.
-//   2. Run POS on each ROI, average the resulting pulse signals.
-//   3. Hann-window + FFT, peak in 0.7-4 Hz, parabolic interp -> hrBpm.
-//   4. Frequency-domain bandpass + IFFT -> filtered trace.
-//   5. Peak-detect with refractory window -> RR intervals -> RMSSD, SDNN.
-//   6. Quality grade from SNR, frame count, beat count, agreement.
-
 import { computePosSignal } from './pos.js';
 
 const TWO_PI = 2 * Math.PI;
 const TARGET_FPS = 30;
-const HR_BAND_LO = 0.7; // 42 bpm
-const HR_BAND_HI = 4.0; // 240 bpm
-// HR-trust thresholds on the spectral peak. Calibrated on live captures: face-ROI
-// reads tracking true HR had SNR ~20-36 and one dominant peak; centred-patch noise
-// that scattered HR had SNR ~5-11. Provisional -- widen the dataset before locking.
-const SNR_TRUST_MIN = 12;       // peak not dominant over the noise floor -> reject
-const SNR_GOOD_MIN = 20;        // clean dominant peak -> 'good'
-const PEAK_DOMINANCE_MIN = 2.5; // top peak / runner-up; below this is ambiguous
-const HRV_RMSSD_MAX_MS = 200;   // RMSSD above this is non-physiologic -> HRV unavailable
+const HR_BAND_LO = 0.7;
+const HR_BAND_HI = 4.0;
+const SNR_TRUST_MIN = 12;
+const SNR_GOOD_MIN = 20;
+const PEAK_DOMINANCE_MIN = 2.5;
+const HRV_RMSSD_MAX_MS = 200;
 
 function nextPow2(n) { let p = 1; while (p < n) p *= 2; return p; }
 
-// Linear-interpolate channel `x` (sampled at timestamps `t` in ms) onto a
-// uniform `targetFps` grid spanning [t[0], t[last]].
 function resample(t, x, targetFps) {
   const n = t.length;
   if (n < 2) return { values: new Float32Array(0), fps: targetFps };
@@ -46,7 +32,6 @@ function resample(t, x, targetFps) {
   return { values: out, fps: targetFps };
 }
 
-// In-place Hann window.
 function hann(arr) {
   const n = arr.length;
   for (let i = 0; i < n; i++) {
@@ -55,10 +40,8 @@ function hann(arr) {
   }
 }
 
-// Iterative radix-2 Cooley-Tukey FFT on complex buffers re[], im[] of length n=2^k.
 function fftInPlace(re, im) {
   const n = re.length;
-  // Bit reversal.
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1;
     for (; j & bit; bit >>= 1) j ^= bit;
@@ -90,7 +73,6 @@ function fftInPlace(re, im) {
 }
 
 function ifftInPlace(re, im) {
-  // Conjugate, FFT, conjugate, divide by n.
   const n = re.length;
   for (let i = 0; i < n; i++) im[i] = -im[i];
   fftInPlace(re, im);
@@ -101,7 +83,6 @@ export function extractHeartFeatures({ samples, durationSec }) {
   const reasons = [];
   const { t, forehead, cheeks } = samples;
 
-  // Resample each channel onto a uniform 30 Hz grid.
   const fR = resample(t, forehead.r, TARGET_FPS);
   const fG = resample(t, forehead.g, TARGET_FPS);
   const fB = resample(t, forehead.b, TARGET_FPS);
@@ -112,31 +93,21 @@ export function extractHeartFeatures({ samples, durationSec }) {
   const framesUsed = fG.values.length;
   if (framesUsed < 600) reasons.push('few_frames');
 
-  // POS per ROI.
   const sForehead = computePosSignal({ r: fR.values, g: fG.values, b: fB.values, fps: TARGET_FPS });
   const sCheeks = computePosSignal({ r: cR.values, g: cG.values, b: cB.values, fps: TARGET_FPS });
 
-  // Average the two ROI pulse signals.
   const n = framesUsed;
   const pulse = new Float32Array(n);
   for (let i = 0; i < n; i++) pulse[i] = (sForehead[i] + sCheeks[i]) * 0.5;
 
-  // FFT setup.
   const N = nextPow2(n);
 
-  // --- Pass 1: Hann-windowed FFT for spectral HR estimation.
-  // The Hann window reduces spectral leakage, giving a cleaner peak in the
-  // frequency domain. Do NOT reuse these coefficients for the IFFT bandpass
-  // below — the Hann weighting would taper the reconstructed signal to near
-  // zero at both ends, causing the peak-detector to miss beats in the first
-  // and last ~5 seconds of the window.
   const re = new Float32Array(N);
   const im = new Float32Array(N);
   for (let i = 0; i < n; i++) re[i] = pulse[i];
   hann(re.subarray(0, n));
   fftInPlace(re, im);
 
-  // Find peak bin in 0.7-4 Hz.
   const binHz = TARGET_FPS / N;
   const loBin = Math.max(1, Math.ceil(HR_BAND_LO / binHz));
   const hiBin = Math.min(Math.floor(N / 2) - 1, Math.floor(HR_BAND_HI / binHz));
@@ -150,9 +121,6 @@ export function extractHeartFeatures({ samples, durationSec }) {
     if (mag > peakMag) { peakMag = mag; peakBin = k; }
   }
 
-  // Peak dominance: a clean pulse has ONE dominant in-band peak; a competing tone
-  // (rhythmic motion, light flicker) makes a comparable rival peak -> ambiguous,
-  // not a heart rate. Find the best peak outside the main peak's skirt.
   let secondMag = 0;
   const peakGuard = Math.max(3, Math.round(0.15 / binHz));
   for (let k = loBin; k <= hiBin; k++) {
@@ -165,14 +133,10 @@ export function extractHeartFeatures({ samples, durationSec }) {
   let hrBpm = NaN;
   let snr = 0;
   if (peakBin > 0 && peakMag > 0) {
-    // Parabolic interpolation around the peak bin.
     const m0 = Math.sqrt(re[peakBin - 1] * re[peakBin - 1] + im[peakBin - 1] * im[peakBin - 1]);
     const m1 = Math.sqrt(peakMag);
     const m2 = Math.sqrt(re[peakBin + 1] * re[peakBin + 1] + im[peakBin + 1] * im[peakBin + 1]);
     const denom = (m0 - 2 * m1 + m2);
-    // Clamp to +/-0.5 bin: the true peak is within half a bin of the max. Left
-    // unclamped, a near-zero denom on a noisy/flat spectrum yields a huge delta
-    // and an out-of-band HR (observed live: 32.1 and 93.2 bpm on noise captures).
     const rawDelta = denom !== 0 ? 0.5 * (m0 - m2) / denom : 0;
     const delta = Math.max(-0.5, Math.min(0.5, rawDelta));
     const peakHz = (peakBin + delta) * binHz;
@@ -184,25 +148,17 @@ export function extractHeartFeatures({ samples, durationSec }) {
     reasons.push('no_peak');
   }
 
-  // HR trust = spectral peak quality: dominant over the noise floor (SNR) AND a
-  // single clear peak (dominance). Either failing means we don't have a heart rate.
   if (!reasons.includes('no_peak')) {
     if (snr < SNR_TRUST_MIN) reasons.push('low_snr');
     else if (snr < SNR_GOOD_MIN) reasons.push('moderate_snr');
     if (peakDominance < PEAK_DOMINANCE_MIN) reasons.push('ambiguous_peak');
   }
 
-  // --- Pass 2: Unwindowed FFT for frequency-domain bandpass + IFFT.
-  // Using the unwindowed transform ensures full-amplitude reconstruction
-  // across the entire signal length, so the peak-detector sees beats uniformly
-  // from start to end rather than only in the centre of the window.
   const reU = new Float32Array(N);
   const imU = new Float32Array(N);
   for (let i = 0; i < n; i++) reU[i] = pulse[i];
   fftInPlace(reU, imU);
 
-  // Frequency-domain bandpass for HRV peak detection. Zero everything outside
-  // [HR_BAND_LO, HR_BAND_HI] in both positive and negative-frequency halves.
   const reBP = new Float32Array(N);
   const imBP = new Float32Array(N);
   for (let k = loBin; k <= hiBin; k++) {
@@ -212,7 +168,6 @@ export function extractHeartFeatures({ samples, durationSec }) {
   }
   ifftInPlace(reBP, imBP);
 
-  // Peak detection on the real-valued filtered trace, restricted to [0, n).
   const trace = reBP.subarray(0, n);
   let absMax = 0;
   for (let i = 0; i < n; i++) {
@@ -230,16 +185,11 @@ export function extractHeartFeatures({ samples, durationSec }) {
     }
   }
 
-  // RR intervals in ms.
   const rr = [];
   for (let i = 1; i < peaks.length; i++) {
     const ms = (peaks[i] - peaks[i - 1]) * (1000 / TARGET_FPS);
     if (ms >= 250 && ms <= 2000) rr.push(ms);
   }
-  // --- HRV (RMSSD / SDNN) from beat intervals. This is the LEAST reliable output:
-  // beat-to-beat timing from phone video is easily corrupted, so HRV must NEVER
-  // veto the heart rate. Compute it, but only expose it when physiologically
-  // plausible; otherwise mark it unavailable (an info flag, not an HR gate).
   let hrvRmssdMs = null;
   let sdnnMs = null;
   let hrvOk = false;
@@ -260,17 +210,12 @@ export function extractHeartFeatures({ samples, durationSec }) {
   }
   if (!hrvOk) reasons.push('hrv_unavailable');
 
-  // Cross-check spectral HR against beat-interval HR, but ONLY when the beat
-  // detector is itself credible (HRV plausible). Noise beats don't get a vote.
   if (hrvOk && rr.length >= 3) {
     let mean = 0; for (const x of rr) mean += x; mean /= rr.length;
     const hrFromRr = 60000 / mean;
     if (Number.isFinite(hrBpm) && Math.abs(hrBpm - hrFromRr) > 15) reasons.push('hr_methods_disagree');
   }
 
-  // HR grade depends ONLY on the spectral peak (present, in-band, dominant, clean).
-  // Beat/HRV failures never veto a good HR -- HRV is reported separately. For a
-  // screening tool, false-'poor' (ask for a retake) beats showing an invented vital.
   let grade;
   if (reasons.includes('no_peak') || reasons.includes('low_snr')
       || reasons.includes('ambiguous_peak') || reasons.includes('few_frames')) {

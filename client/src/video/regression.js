@@ -1,7 +1,3 @@
-// Heart-screen classification bands + age-aware notes.
-// Pure function from the features object + demographics to the report-ready
-// fields. No I/O.
-
 export function classifyHeart({ features, demographics }) {
   const hr = features?.hrBpm;
   const rmssd = features?.hrvRmssdMs;

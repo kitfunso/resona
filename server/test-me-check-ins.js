@@ -21,9 +21,6 @@ test.after(async () => {
   await pool.end();
 });
 
-// Build a real session cookie via issueSession so requireAuth treats the
-// request as a logged-in user. Mirrors the production path: the cookie
-// jar is identical to what /api/auth/verify-code would have set.
 async function authedReq(urlPath, { userId, orgId, cookie } = {}) {
   const headers = {};
   if (cookie === false) {
@@ -37,8 +34,6 @@ async function authedReq(urlPath, { userId, orgId, cookie } = {}) {
   return fetch(`${baseUrl}${urlPath}`, { method: 'GET', headers });
 }
 
-// Seed a pair of users in two orgs scoped to a per-test suffix. Wipes any
-// rows tied to that suffix first so tests are independent of run order.
 async function seed(suffix) {
   const orgASlug = `me-checkins-a-${suffix}`;
   const orgBSlug = `me-checkins-b-${suffix}`;
@@ -89,8 +84,6 @@ async function seed(suffix) {
   };
 }
 
-// Insert a check-in directly. createdAt lets tests force ordering without
-// sleeping. Payload shape mirrors the analyze handlers exactly.
 async function insertCheckIn({ userId, orgId, kind, payload, createdAt }) {
   if (createdAt) {
     await pool.query(
@@ -107,9 +100,6 @@ async function insertCheckIn({ userId, orgId, kind, payload, createdAt }) {
   }
 }
 
-// Payload fixtures shaped exactly like the analyze handlers persist them.
-// Each fixture deliberately includes the full set of fields that MUST NOT
-// appear in the response so the negative-assertion test is meaningful.
 function breathPayload(headline) {
   return {
     features: { peakFlow: 7.1, fev1: 3.4, pef: 7.1 },
@@ -158,21 +148,16 @@ function heartPayload(headline) {
   };
 }
 
-// 1. Auth gating -------------------------------------------------------------
-
 test('GET /api/me/check-ins without cookie -> 401', async () => {
   const res = await authedReq('/api/me/check-ins', { cookie: false });
   assert.equal(res.status, 401);
 });
 
 test('GET /api/me/check-ins with tampered cookie -> 401', async () => {
-  // Well-formed JWT shape but invalid signature; verifySession will throw.
   const tampered = `${SESSION_COOKIE}=eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiJ4In0.bad-signature`;
   const res = await authedReq('/api/me/check-ins', { cookie: tampered });
   assert.equal(res.status, 401);
 });
-
-// 2. Empty -------------------------------------------------------------------
 
 test('GET /api/me/check-ins with zero rows -> empty list, default limit, not truncated', async () => {
   const { userA, orgA } = await seed('empty');
@@ -181,8 +166,6 @@ test('GET /api/me/check-ins with zero rows -> empty list, default limit, not tru
   const body = await res.json();
   assert.deepEqual(body, { checkIns: [], limit: 50, truncated: false });
 });
-
-// 3. Populated allowlist -----------------------------------------------------
 
 test('GET /api/me/check-ins populated -> each row carries exactly the four allowlisted keys', async () => {
   const { userA, orgA } = await seed('allowlist');
@@ -208,12 +191,8 @@ test('GET /api/me/check-ins populated -> each row carries exactly the four allow
   }
 });
 
-// 4. Negative-assertion shape ------------------------------------------------
-
 test('GET /api/me/check-ins response body never contains raw payload field names or classification tokens', async () => {
   const { userA, orgA } = await seed('negative');
-  // Seed one of each kind so all three CASE arms of the SQL are exercised
-  // and every payload variant the analyze handlers can persist is present.
   await insertCheckIn({ userId: userA.id, orgId: orgA.id, kind: 'breath', payload: breathPayload('b headline') });
   await insertCheckIn({ userId: userA.id, orgId: orgA.id, kind: 'motion', payload: motionPayload('m headline') });
   await insertCheckIn({ userId: userA.id, orgId: orgA.id, kind: 'heart', payload: heartPayload('h headline') });
@@ -222,12 +201,6 @@ test('GET /api/me/check-ins response body never contains raw payload field names
   assert.equal(res.status, 200);
   const raw = await res.text();
 
-  // Substrings that target raw check_ins.payload sub-keys and classification
-  // tokens. Quoted-and-colon-anchored (e.g. '"fev1":') so a future headline
-  // containing the bare letters cannot trigger a false positive. The bare
-  // discriminator '"kind":"heart"' is allowed in the response; '"heart"'
-  // would collide with it, so we target the raw payload.heart object via its
-  // distinct sentinel keys ('"hrBpm":' / '"hrvRmssd":' / '"quality":') instead.
   const forbiddenSubstrings = [
     '"features":',
     '"atsFlags":',
@@ -266,11 +239,8 @@ test('GET /api/me/check-ins response body never contains raw payload field names
   }
 });
 
-// 5. Per-kind headline -------------------------------------------------------
-
 test('GET /api/me/check-ins maps headline per-kind: breath/motion/heart', async () => {
   const { userA, orgA } = await seed('headline');
-  // Use distinct createdAt values so the order is deterministic; newest first.
   const base = Date.now();
   await insertCheckIn({
     userId: userA.id,
@@ -303,8 +273,6 @@ test('GET /api/me/check-ins maps headline per-kind: breath/motion/heart', async 
   assert.equal(byKind.heart, 'HEART_HEAD');
 });
 
-// 6. Cross-user isolation ----------------------------------------------------
-
 test('GET /api/me/check-ins never returns rows belonging to another user (different orgs)', async () => {
   const { userA, userB, orgA, orgB } = await seed('isolation-cross-org');
   await insertCheckIn({ userId: userA.id, orgId: orgA.id, kind: 'breath', payload: breathPayload('A row') });
@@ -326,8 +294,6 @@ test('GET /api/me/check-ins never returns rows belonging to another user (differ
 });
 
 test('GET /api/me/check-ins never returns rows belonging to another user in the same org', async () => {
-  // Same-org isolation: both users in orgA. Authoritative scoping is by
-  // user_id, not org_id, and this proves it.
   const suffix = 'isolation-same-org';
   const orgSlug = `me-checkins-shared-${suffix}`;
   const userAEmail = `same-a-${suffix}@example.com`;
@@ -379,12 +345,8 @@ test('GET /api/me/check-ins never returns rows belonging to another user in the 
   }
 });
 
-// 7. Limit clamping ----------------------------------------------------------
-
 test('GET /api/me/check-ins limit clamping covers the four invalid inputs and the over-cap case', async () => {
   const { userA, orgA } = await seed('limit-clamp');
-  // Seed 5 rows so we can also see the body length matches expectations
-  // where limit > rows. Tests the "limit, never 400" contract.
   for (let i = 0; i < 5; i++) {
     await insertCheckIn({
       userId: userA.id,
@@ -395,7 +357,6 @@ test('GET /api/me/check-ins limit clamping covers the four invalid inputs and th
     });
   }
 
-  // ?limit=10000 -> clamped to 200 (the cap)
   const rOver = await authedReq('/api/me/check-ins?limit=10000', { userId: userA.id, orgId: orgA.id });
   assert.equal(rOver.status, 200);
   const bOver = await rOver.json();
@@ -403,31 +364,26 @@ test('GET /api/me/check-ins limit clamping covers the four invalid inputs and th
   assert.equal(bOver.checkIns.length, 5);
   assert.equal(bOver.truncated, false);
 
-  // ?limit=-1 -> default 50
   const rNeg = await authedReq('/api/me/check-ins?limit=-1', { userId: userA.id, orgId: orgA.id });
   assert.equal(rNeg.status, 200);
   const bNeg = await rNeg.json();
   assert.equal(bNeg.limit, 50);
 
-  // ?limit=abc -> default 50 (NaN)
   const rAbc = await authedReq('/api/me/check-ins?limit=abc', { userId: userA.id, orgId: orgA.id });
   assert.equal(rAbc.status, 200);
   const bAbc = await rAbc.json();
   assert.equal(bAbc.limit, 50);
 
-  // ?limit=0 -> default 50 (< 1)
   const rZero = await authedReq('/api/me/check-ins?limit=0', { userId: userA.id, orgId: orgA.id });
   assert.equal(rZero.status, 200);
   const bZero = await rZero.json();
   assert.equal(bZero.limit, 50);
 
-  // missing limit -> default 50
   const rMissing = await authedReq('/api/me/check-ins', { userId: userA.id, orgId: orgA.id });
   assert.equal(rMissing.status, 200);
   const bMissing = await rMissing.json();
   assert.equal(bMissing.limit, 50);
 
-  // truncated true when rows.length === limit. Use ?limit=3 with 5 seeded rows.
   const rTrunc = await authedReq('/api/me/check-ins?limit=3', { userId: userA.id, orgId: orgA.id });
   assert.equal(rTrunc.status, 200);
   const bTrunc = await rTrunc.json();
@@ -436,13 +392,9 @@ test('GET /api/me/check-ins limit clamping covers the four invalid inputs and th
   assert.equal(bTrunc.truncated, true);
 });
 
-// 8. Order -------------------------------------------------------------------
-
 test('GET /api/me/check-ins returns rows newest-first', async () => {
   const { userA, orgA } = await seed('order');
   const base = Date.now();
-  // Insert 6 rows with deliberately scrambled createdAt values so the
-  // newest-first ordering can't be a coincidence of insert order.
   const rows = [
     { kind: 'breath', headline: 'r0', delta: -6000 },
     { kind: 'motion', headline: 'r1', delta: -1000 },
@@ -468,11 +420,9 @@ test('GET /api/me/check-ins returns rows newest-first', async () => {
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.checkIns.length, 6);
-  // Newest first: r1 (delta -1000), r3 (-2000), r5 (-3000), r2 (-4000), r4 (-5000), r0 (-6000).
   const expectedOrder = ['r1', 'r3', 'r5', 'r2', 'r4', 'r0'];
   const actualOrder = body.checkIns.map((r) => r.headline);
   assert.deepEqual(actualOrder, expectedOrder);
-  // And the createdAt strings are monotonically non-increasing.
   for (let i = 1; i < body.checkIns.length; i++) {
     assert.ok(
       body.checkIns[i - 1].createdAt >= body.checkIns[i].createdAt,

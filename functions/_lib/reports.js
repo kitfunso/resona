@@ -1,9 +1,3 @@
-// Deterministic (LLM-free) report layer, ported verbatim from
-// server/reports.js. These are pure functions of their arguments. On the
-// Cloudflare edge the LLM upstream (a local openclaw shim) is unreachable, so
-// the analyze-* Functions use these fallbacks directly — the same branch the
-// old server took when the model was unreachable.
-
 export function atsFlags(features) {
   const flags = [];
   if (features.peakTimeSec > 0.5) flags.push('peak_late');
@@ -260,9 +254,6 @@ export function scrubReport(report) {
   return report;
 }
 
-// Minimal demographics derived from the stored DB user. The analyze-* guards
-// only need ageYears / sex / heightCm; the full LLM prompt builder is not used
-// on the edge.
 export function buildDemographics(user) {
   let ageYears = null;
   if (user?.dob) {

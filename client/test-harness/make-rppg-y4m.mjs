@@ -1,14 +1,3 @@
-// Generate a synthetic rPPG test video for the fake-camera browser test.
-//
-// Writes a Y4M (uncompressed) the browser plays as a fake webcam via Chromium's
-// --use-file-for-fake-video-capture. Each frame is a single skin-tone colour
-// whose GREEN channel oscillates at the target heart rate, with only tiny R/B
-// modulation. This mimics a real blood-volume pulse (green absorption changes
-// most) — and, crucially, a *channel-differential* signal, because POS by
-// design cancels modulation that hits all channels equally (lighting/motion).
-//
-// 72 bpm over exactly 30 s = 36 whole cycles, so the file loops seamlessly.
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,8 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const W = 128, H = 96, FPS = 30, DURATION_SEC = 30, BPM = 72;
 const pulseHz = BPM / 60;
 const base = { r: 190, g: 150, b: 130 };
-const amp = { r: 0.6, g: 3.0, b: 0.6 }; // green-dominant
-
+const amp = { r: 0.6, g: 3.0, b: 0.6 };
 // JPEG/full-range BT.601 RGB->YCbCr (matches C420jpeg).
 function rgb2yuv(r, g, b) {
   const clamp = (x) => Math.max(0, Math.min(255, Math.round(x)));

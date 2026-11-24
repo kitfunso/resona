@@ -1,8 +1,3 @@
-// A/B quality + latency eval across reasoning effort levels.
-// - Narrator: 3 samples × {low, medium, high} = 9 calls (short output).
-// - Personal report: 1 sample × {low, medium, high} = 3 calls (long output).
-// Prints each output + per-call latency, so the human can judge quality.
-
 import { performance } from 'node:perf_hooks';
 import {
   NARRATOR_SYSTEM,
